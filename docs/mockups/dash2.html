@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dash2 Mockup</title>
+<style>
+  :root {
+    --bg: #0c0c0e;
+    --panel: #17171a;
+    --panel-border: #2b2b30;
+    --text: #f2f2f4;
+    --text-dim: #9a9aa2;
+    --text-faint: #6b6b74;
+    --accent: #4285F4;
+
+    --overdue-bg: #7a1414;   --overdue-fg: #ffffff;
+    --today-bg:   #b21f1f;   --today-fg:   #ffffff;
+    --soon-bg:    #7a5b00;   --soon-fg:    #ffffff;
+    --soonish-bg: #0f5c33;   --soonish-fg: #ffffff;
+    --future-bg:  #14532d;   --future-fg:  #d7f5df;
+    --complete-bg:#1c2c46;   --complete-fg:#a9c4f5;
+    --unsched-bg: #232327;   --unsched-fg: #b9b9c0;
+
+    --radius-lg: 14px;
+    --radius-md: 10px;
+    --radius-sm: 7px;
+  }
+
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: #050506;
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+    min-height: 100vh;
+  }
+
+  /* Scrollbars follow the app's dark theme instead of the OS default */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #45454c var(--bg);
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background-color: #45454c; border-radius: 8px; border: 2px solid var(--bg); }
+  ::-webkit-scrollbar-thumb:hover { background-color: #565660; }
+
+  /* ============== MOCKUP HARNESS (not part of Dash2 UI) ============== */
+  #mock-toolbar {
+    position: sticky; top: 0; z-index: 500;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    background: #000; border-bottom: 1px solid #2a2a2e;
+    padding: 10px 16px; font-size: 12px; color: #aaa;
+  }
+  #mock-toolbar .grp { display:flex; align-items:center; gap:6px; padding-right:12px; border-right:1px solid #2a2a2e; }
+  #mock-toolbar .grp:last-child { border-right: none; }
+  #mock-toolbar label { color:#777; font-size:11px; text-transform:uppercase; letter-spacing:0.04em; margin-right:2px; }
+  #mock-toolbar button {
+    background:#1c1c1f; border:1px solid #333; color:#ccc; font-size:12px;
+    padding:6px 12px; border-radius:6px; cursor:pointer; font-family:inherit;
+  }
+  #mock-toolbar button:hover { background:#26262a; }
+  #mock-toolbar button.active { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  #mock-stage {
+    padding: 28px 16px 80px;
+    display: flex; justify-content: center;
+  }
+  #mock-frame {
+    background: var(--bg);
+    border: 1px solid #29292d;
+    border-radius: 18px;
+    overflow: hidden;
+    transition: width 0.25s ease;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  #mock-frame.width-narrow { width: 420px; }
+  #mock-frame.width-medium { width: 860px; }
+  #mock-frame.width-full { width: min(1400px, 92vw); }
+  #mock-frame-inner { height: 900px; overflow-y: auto; position: relative; }
+  .frame-label {
+    text-align:center; color:#555; font-size:11px; margin-top:10px; letter-spacing:0.05em; text-transform:uppercase;
+  }
+
+  /* ============== DASH2 APP SHELL ============== */
+  .app { min-height: 100%; display: flex; flex-direction: column; background: var(--bg); }
+
+  /* ---- Glance mode ---- */
+  .glance-header {
+    display:flex; align-items:baseline; justify-content:space-between;
+    padding: 16px 22px 8px; gap: 10px;
+  }
+  .glance-datetime {
+    display:flex; align-items:baseline; gap:10px; min-width:0; flex-wrap:wrap;
+  }
+  .glance-clock { font-size: 30px; font-weight: 700; letter-spacing: 0.5px; white-space:nowrap; }
+  .glance-date { font-size: 13px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em; white-space:nowrap; }
+  .glance-header-actions { display:flex; align-items:center; gap:8px; flex:0 0 auto; }
+  .glance-icon-btn {
+    width: 34px; height: 34px; border-radius: 50%; border: 1px solid #333; background: #1a1a1d;
+    color: #ccc; font-size: 15px; cursor: pointer; display:flex; align-items:center; justify-content:center;
+    flex: 0 0 auto;
+  }
+  .glance-icon-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .glance-menu-wrap { position: relative; }
+  .glance-menu-dropdown {
+    position:absolute; top:40px; right:0; background:#1e1e22; border:1px solid #333; border-radius:10px;
+    padding:6px; min-width:170px; box-shadow:0 8px 24px rgba(0,0,0,0.5); z-index:400; display:none;
+  }
+  .glance-menu-dropdown.open { display:block; }
+  .glance-menu-dropdown button {
+    display:flex; align-items:center; gap:8px; width:100%; background:none; border:none; color:#ddd;
+    font-size:13px; padding:9px 10px; border-radius:7px; cursor:pointer; text-align:left; font-family:inherit;
+  }
+  .glance-menu-dropdown button:hover { background:#2a2a2f; }
+  .glance-stale { font-size:11px; color:#e0b64a; display:flex; align-items:center; gap:5px; padding: 0 22px 6px; }
+  .glance-stale::before { content:""; width:6px; height:6px; border-radius:50%; background:#e0b64a; display:inline-block; }
+  .glance-stale.hidden { display:none; }
+
+  .glance-searchbar {
+    padding: 0 18px 8px; display:none;
+  }
+  .glance-searchbar.open { display:block; }
+  .glance-searchbar input {
+    width:100%; background:#1e1e22; border:1px solid #383840; border-radius:8px; color:#eee;
+    font-size:13.5px; padding:8px 12px; font-family:inherit; box-sizing:border-box;
+  }
+  .glance-searchbar input:focus { outline:1px solid var(--accent); }
+
+  .glance-filterbar {
+    display:flex; align-items:center; gap:8px; padding: 0 18px 10px; flex-wrap:wrap;
+  }
+
+  .glance-sections {
+    display:grid; gap: 4px 14px;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    padding: 0 4px;
+  }
+
+  .section-block { padding: 4px 14px; }
+  .section-head {
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 10px 8px 6px; cursor: pointer; user-select:none;
+  }
+  .section-head .title {
+    font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--text-dim);
+    display:flex; align-items:center; gap:8px;
+  }
+  .section-head .count { font-size:11px; color:var(--text-faint); font-weight:500; }
+  .section-head .chev { color: var(--text-faint); font-size: 11px; transition: transform 0.15s ease; }
+  .section-block.collapsed .chev { transform: rotate(-90deg); }
+  .section-block.collapsed .task-list { display:none; }
+  .empty-note { font-size:12px; color:var(--text-faint); padding: 6px 14px; }
+
+  .task-list { display:flex; flex-direction:column; gap:5px; }
+  .task-row {
+    display:flex; align-items:center; border-radius: var(--radius-lg);
+    padding: 0 14px; height: 46px; gap: 10px; cursor:pointer;
+    transition: filter 0.1s ease;
+  }
+  .task-row:hover { filter: brightness(1.08); }
+  .task-row.status-overdue  { background: var(--overdue-bg);  color: var(--overdue-fg); }
+  .task-row.status-today    { background: var(--today-bg);    color: var(--today-fg); font-weight:600; }
+  .task-row.status-soon     { background: var(--soon-bg);     color: var(--soon-fg); }
+  .task-row.status-soonish  { background: var(--soonish-bg);  color: var(--soonish-fg); }
+  .task-row.status-future   { background: var(--future-bg);   color: var(--future-fg); }
+  .task-row.status-complete { background: var(--complete-bg); color: var(--complete-fg); opacity:0.7; }
+  .task-row.status-unscheduled { background: var(--unsched-bg); color: var(--unsched-fg); }
+  .task-row.status-overdue.emph { box-shadow: inset 0 0 0 2px rgba(255,255,255,0.5); font-weight:700; }
+
+  /* Emoji on a solid off-white block: the block (not the task bar) is the
+     contrast surface, so the emoji reads the same on every status color
+     instead of colliding with whatever hue the bar happens to be.
+     Individual emoji glyphs carry wildly different internal metrics
+     (ink-box offset, variation selectors, etc.), and since these icons
+     will be user-selectable we can't hand-tune padding per glyph. `grid` +
+     `place-items:center` centers by the glyph's content box on both axes
+     directly (no inline-text baseline involved, which is what throws off
+     glyphs like ⚠️ under flex/inline-block centering) — this is what
+     actually normalizes arbitrary emoji, not a translate/padding offset. */
+  .task-status-icon, .task-priority {
+    flex: 0 0 auto; border-radius: 7px;
+    display: grid; place-items: center;
+    background: #000000; box-shadow: 0 1px 2px rgba(0,0,0,0.35);
+  }
+  .task-status-icon { width: 24px; height: 24px; }
+  .task-priority { width: 22px; height: 22px; border-radius: 6px; }
+  .task-priority:empty { background:none; box-shadow:none; width:0; }
+
+  .task-status-icon .icon-glyph, .task-priority .icon-glyph {
+    font-size: 15px; line-height: 1;
+  }
+  .task-priority .icon-glyph { font-size: 13px; }
+
+  .task-name { flex: 1 1 auto; font-size: 14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .task-note-dot { flex: 0 0 auto; width:6px; height:6px; border-radius:50%; background: currentColor; opacity:0.5; }
+  .task-emoji { flex: 0 0 auto; font-size: 12px; opacity:0.9; }
+  .task-due {
+    flex: 0 0 auto; font-size: 12px; font-weight:700; font-variant-numeric: tabular-nums;
+    min-width: 40px; text-align:center; padding: 2px 7px; border-radius: 6px;
+    background: rgba(0,0,0,0.28);
+  }
+
+  /* ---- Style B: translucent bars, solid borders, no icon badges ---- */
+  .style-outline .task-row {
+    background: transparent !important;
+    border: 1.5px solid transparent;
+  }
+  .style-outline .task-row.status-overdue    { background: color-mix(in srgb, var(--overdue-bg) 22%, transparent) !important; border-color: var(--overdue-bg); color: #ffb3b3; }
+  .style-outline .task-row.status-today      { background: color-mix(in srgb, var(--today-bg) 22%, transparent) !important; border-color: var(--today-bg); color: #ff9d9d; font-weight:600; }
+  .style-outline .task-row.status-soon       { background: color-mix(in srgb, var(--soon-bg) 22%, transparent) !important; border-color: var(--soon-bg); color: #f3d576; }
+  .style-outline .task-row.status-soonish    { background: color-mix(in srgb, var(--soonish-bg) 22%, transparent) !important; border-color: var(--soonish-bg); color: #7be0ab; }
+  .style-outline .task-row.status-future     { background: color-mix(in srgb, var(--future-bg) 22%, transparent) !important; border-color: var(--future-bg); color: #8fe3ac; }
+  .style-outline .task-row.status-complete   { background: color-mix(in srgb, var(--complete-bg) 22%, transparent) !important; border-color: var(--complete-bg); color: #9db9ea; opacity:0.75; }
+  .style-outline .task-row.status-unscheduled{ background: color-mix(in srgb, var(--unsched-bg) 40%, transparent) !important; border-color: #4a4a52; color: #b9b9c0; }
+  .style-outline .task-row.status-overdue.emph { border-width: 2px; font-weight:700; }
+  .style-outline .task-due { background:none; font-weight:600; padding: 0; }
+
+  .glance-fab {
+    position: sticky; bottom: 16px; margin-left: auto; margin-right: 18px;
+    width: 50px; height: 50px; border-radius: 50%; background: var(--accent); color:#fff;
+    border:none; font-size:22px; cursor:pointer; box-shadow:0 6px 18px rgba(0,0,0,0.5);
+    display:flex; align-items:center; justify-content:center; float:right;
+  }
+
+  /* ---- Legend (mirrors prod's #legend-container: Status / Due / Priority) ---- */
+  .legend-bar { clear:both; border-top: 1px solid var(--panel-border); margin-top: 8px; }
+  .legend-toggle {
+    background:none; border:none; color: var(--text-faint); font-size:11.5px; font-weight:600;
+    text-transform:uppercase; letter-spacing:0.06em; cursor:pointer; padding: 10px 18px; font-family:inherit;
+  }
+  .legend-toggle:hover { color: var(--text-dim); }
+  .legend-body { display:none; flex-direction:column; gap:8px; padding: 0 18px 14px; }
+  .legend-body.open { display:flex; }
+  .legend-row { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+  .legend-label {
+    flex:0 0 auto; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em;
+    color: var(--text-faint); width: 54px;
+  }
+  .legend-chip {
+    font-size:12px; padding: 3px 9px 3px 6px; border-radius:999px; background:#1e1e22; border:1px solid #333;
+    color:#ccc; display:inline-flex; align-items:center; gap:5px;
+  }
+  .legend-chip .icon-glyph { font-size:13px; }
+  .legend-color-chip { font-size:12px; font-weight:600; padding: 4px 11px; border-radius:999px; }
+  .legend-color-chip.status-overdue  { background: var(--overdue-bg);  color: var(--overdue-fg); }
+  .legend-color-chip.status-today    { background: var(--today-bg);    color: var(--today-fg); }
+  .legend-color-chip.status-soon     { background: var(--soon-bg);     color: var(--soon-fg); }
+  .legend-color-chip.status-soonish  { background: var(--soonish-bg);  color: var(--soonish-fg); }
+  .legend-color-chip.status-future   { background: var(--future-bg);   color: var(--future-fg); }
+  .legend-color-chip.status-complete { background: var(--complete-bg); color: var(--complete-fg); }
+  .legend-color-chip.status-unscheduled { background: var(--unsched-bg); color: var(--unsched-fg); }
+
+  .std-btn {
+    background:#232327; border:1px solid #333; color:#ddd; font-size:12.5px; font-weight:600;
+    padding: 8px 14px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:6px;
+  }
+  .std-btn.primary { background: var(--accent); border-color: var(--accent); color:#fff; }
+  .std-btn:hover { filter: brightness(1.1); }
+
+  .chip {
+    font-size: 12px; padding: 5px 12px; border-radius: 999px; background:#1e1e22; border:1px solid #333;
+    color: #bbb; cursor:pointer; display:flex; align-items:center; gap:5px;
+  }
+  .chip.active { background: #2c3d63; border-color:#3f5a95; color:#cfe0ff; }
+
+  /* ---- Manage mode ---- */
+  .manage-wrap { padding: 22px; }
+  .manage-header { display:flex; align-items:center; gap:10px; margin-bottom: 18px; }
+  .manage-back { background:#1e1e22; border:1px solid #333; color:#ccc; border-radius:8px; padding:7px 12px; font-size:12.5px; cursor:pointer; }
+  .manage-title { font-size:18px; font-weight:700; }
+  .manage-tabs { display:flex; gap:6px; margin-bottom:20px; border-bottom:1px solid var(--panel-border); }
+  .manage-tab { padding:9px 14px; font-size:12.5px; color:#999; cursor:pointer; border-bottom:2px solid transparent; }
+  .manage-tab.active { color:#fff; border-color: var(--accent); font-weight:600; }
+  .manage-card { background:var(--panel); border:1px solid var(--panel-border); border-radius:var(--radius-lg); padding:18px 20px; margin-bottom:14px; }
+  .manage-card h3 { margin:0 0 4px; font-size:13.5px; }
+  .manage-card p.sub { margin:0 0 14px; font-size:12px; color:var(--text-dim); }
+  .setting-row { display:flex; align-items:center; justify-content:space-between; padding:11px 0; border-bottom:1px solid #232327; gap:16px; }
+  .setting-row:last-child { border-bottom:none; }
+  .setting-row .label { font-size:13px; }
+  .setting-row .desc { font-size:11.5px; color:var(--text-faint); margin-top:2px; }
+  .setting-control select, .setting-control input[type=text], .setting-control input[type=number] {
+    background:#232327; border:1px solid #383840; border-radius:7px; color:#eee; font-size:12.5px; padding:6px 10px;
+  }
+  .toggle { position:relative; width:38px; height:22px; display:inline-block; }
+  .toggle input { opacity:0; width:0; height:0; }
+  .toggle .slider { position:absolute; inset:0; background:#3a3a40; border-radius:22px; transition:background .15s; }
+  .toggle .slider::before { content:""; position:absolute; width:16px; height:16px; left:3px; top:3px; background:#fff; border-radius:50%; transition:transform .15s; }
+  .toggle input:checked + .slider { background: var(--accent); }
+  .toggle input:checked + .slider::before { transform:translateX(16px); }
+  .segmented { display:inline-flex; background:#1e1e22; border:1px solid #333; border-radius:8px; overflow:hidden; }
+  .segmented button { background:none; border:none; color:#999; font-size:12px; padding:6px 12px; cursor:pointer; }
+  .segmented button.active { background: var(--accent); color:#fff; font-weight:600; }
+  .row-list { display:flex; flex-direction:column; gap:8px; }
+  .member-row { display:flex; align-items:center; gap:10px; padding:9px 12px; background:#1e1e22; border:1px solid #2c2c30; border-radius:9px; }
+  .member-row .avatar { width:26px; height:26px; border-radius:50%; background:#3a3a40; font-size:11px; display:flex; align-items:center; justify-content:center; font-weight:700; }
+  .member-row .name { font-size:13px; flex:1; }
+  .member-row .role-badge { font-size:10.5px; padding:3px 9px; border-radius:999px; background:#2c3d63; color:#cfe0ff; text-transform:uppercase; letter-spacing:0.04em; }
+  .member-row .role-badge.owner { background:#4a3a1e; color:#f2c774; }
+  .member-row .role-badge.viewer { background:#2c2c30; color:#aaa; }
+
+  /* ---- Task edit panel ---- */
+  .panel-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:900; display:none; align-items:center; justify-content:center; }
+  .panel-backdrop.open { display:flex; }
+  .task-panel { background:var(--panel); border:1px solid var(--panel-border); border-radius:16px; width:440px; max-width:92vw; padding:22px 24px; }
+  .task-panel h3 { margin:0 0 16px; font-size:15px; }
+  .field { margin-bottom:12px; }
+  .field label { display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-faint); margin-bottom:5px; }
+  .field input, .field select, .field textarea {
+    width:100%; background:#232327; border:1px solid #383840; border-radius:8px; color:#eee; font-size:13.5px; padding:8px 10px; font-family:inherit;
+  }
+  .field-row { display:flex; gap:10px; }
+  .field-row .field { flex:1; }
+  .panel-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+
+<div id="mock-toolbar">
+  <div class="grp">
+    <label>Mode</label>
+    <button data-mode="glance" class="active">Glance</button>
+    <button data-mode="manage">Manage</button>
+  </div>
+  <div class="grp">
+    <label>Width</label>
+    <button data-width="narrow" class="active">Narrow (1/3)</button>
+    <button data-width="medium">Medium</button>
+    <button data-width="full">Full screen</button>
+  </div>
+  <div class="grp" id="manage-nav-grp" style="display:none;">
+    <label>Manage screen</label>
+    <button data-manage="sheet">Sheet access</button>
+    <button data-manage="display">Display profile</button>
+    <button data-manage="account">Account</button>
+  </div>
+  <div class="grp">
+    <label>Task style</label>
+    <button data-style="solid" class="active">A · Solid bars</button>
+    <button data-style="outline">B · Translucent + border</button>
+  </div>
+  <div class="grp">
+    <label>Extras</label>
+    <button id="toggle-panel-btn">Open task panel</button>
+  </div>
+  <div class="grp" style="border-right:none; color:#666;">Static mockup — no auth, no live data</div>
+</div>
+
+<div id="mock-stage">
+  <div>
+    <div id="mock-frame" class="width-narrow">
+      <div id="mock-frame-inner">
+        <div class="app" id="app-root"></div>
+      </div>
+    </div>
+    <div class="frame-label" id="frame-label">Narrow desktop column · 420px (1 column)</div>
+  </div>
+</div>
+
+<!-- Task edit panel (shared) -->
+<div class="panel-backdrop" id="panel-backdrop">
+  <div class="task-panel">
+    <h3>Edit task</h3>
+    <div class="field">
+      <label>Name</label>
+      <input type="text" value="Renew vehicle registration">
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>Status</label>
+        <select><option>Not started</option><option selected>In progress</option><option>Pending</option><option>Blocked</option><option>Complete</option><option>Cancelled</option></select>
+      </div>
+      <div class="field">
+        <label>Priority</label>
+        <select><option>Low</option><option>Medium</option><option selected>High</option><option>Urgent</option></select>
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>Due date</label>
+        <input type="text" value="2026-07-24" placeholder="TBD">
+      </div>
+      <div class="field">
+        <label>Sheet</label>
+        <select><option selected>Household</option><option>Work</option><option>Errands</option></select>
+      </div>
+    </div>
+    <div class="field">
+      <label>Notes</label>
+      <textarea rows="3">DMV portal was down last time — try mid-morning.</textarea>
+    </div>
+    <div class="field">
+      <label>Flags</label>
+      <input type="text" value="🚗 ⭐" placeholder="e.g. 🚩 ⭐">
+    </div>
+    <div class="panel-actions">
+      <button class="std-btn" id="panel-close-btn">Cancel</button>
+      <button class="std-btn" style="background:#7a2020;border-color:#7a2020;color:#fff;">Delete</button>
+      <button class="std-btn primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---------------- Sample data (mirrors production shape, not real data) ---------------- */
+const SHEETS = [
+  { slug:'household', name:'Household', color:'#4285F4' },
+  { slug:'work',       name:'Work',       color:'#e0b64a' },
+  { slug:'errands',    name:'Errands',    color:'#6ee7b7' },
+];
+
+/* Task shape mirrors prod: `status` is workflow state (not started / in
+   progress / pending / blocked / complete / cancelled) — independent from
+   the task-bar color, which is derived from status + due date the same
+   way prod's getColorClass() does it (see dueColorClass() below). */
+const TASKS = {
+  household: [
+    { name:'Renew vehicle registration', status:'in progress', dueDate:'2026-07-18', due:'7/18', priority:'high',   note:true,  emoji:'🚗' },
+    { name:'Pay HOA dues',               status:'not started', dueDate:'2026-07-22', due:'7/22', priority:'urgent', note:false, emoji:'' },
+    { name:'Schedule HVAC service',      status:'pending',     dueDate:'2026-07-24', due:'7/24', priority:'medium', note:true,  emoji:'' },
+    { name:'Replace air filters',        status:'not started', dueDate:'2026-07-29', due:'7/29', priority:'low',    note:false, emoji:'' },
+    { name:'Plan backyard cleanup',      status:'blocked',     dueDate:'2026-08-10', due:'8/10', priority:'low',    note:false, emoji:'🌳' },
+    { name:'Order water filter refills', status:'not started', dueDate:null,         due:'TBD',  priority:'medium', note:false, emoji:'' },
+    { name:'Cancel unused streaming sub',status:'complete',    dueDate:'2026-07-15', due:'7/15', priority:'low',    note:false, emoji:'' },
+  ],
+  work: [
+    { name:'Finalize Q3 budget draft',   status:'blocked',     dueDate:'2026-07-20', due:'7/20', priority:'urgent', note:true,  emoji:'📊' },
+    { name:'Review PR #482',             status:'not started', dueDate:'2026-07-22', due:'7/22', priority:'high',   note:false, emoji:'' },
+    { name:'1:1 prep — Priya',           status:'in progress', dueDate:'2026-07-22', due:'7/22', priority:'medium', note:true,  emoji:'' },
+    { name:'Write migration runbook',    status:'pending',     dueDate:'2026-07-25', due:'7/25', priority:'high',   note:false, emoji:'' },
+    { name:'Update team wiki',           status:'not started', dueDate:'2026-07-30', due:'7/30', priority:'low',    note:false, emoji:'' },
+    { name:'Plan sprint retro',          status:'not started', dueDate:'2026-08-03', due:'8/03', priority:'medium', note:false, emoji:'' },
+  ],
+  errands: [
+    { name:'Pick up dry cleaning',       status:'in progress', dueDate:'2026-07-22', due:'7/22', priority:'medium', note:false, emoji:'' },
+    { name:'Return library books',       status:'not started', dueDate:'2026-07-23', due:'7/23', priority:'low',    note:false, emoji:'📚' },
+    { name:'Buy birthday gift — Sam',    status:'pending',     dueDate:'2026-07-28', due:'7/28', priority:'medium', note:true,  emoji:'🎁' },
+    { name:'Grocery run',                status:'cancelled',   dueDate:null,         due:'TBD',  priority:'low',    note:false, emoji:'' },
+  ],
+};
+
+/* Same emoji categories as prod's default CONFIG.statusEmojis /
+   CONFIG.priorityEmojis (public/index.html) — status is workflow state,
+   priority swaps to the "complete" celebration icon once a task is done. */
+const STATUS_ICON = {
+  'not started':'🗓️', 'in progress':'⏳', 'pending':'⏰', 'blocked':'⛔️', 'complete':'✅', 'cancelled':'✖️'
+};
+const PRIORITY_ICON = { low:'💤', medium:'🟢', high:'⚠️', urgent:'☢️', complete:'🎉' };
+
+const SOON_DAYS = 3, SOONISH_DAYS = 7;
+function dueColorClass(t) {
+  if (t.status === 'complete' || t.status === 'cancelled') return 'status-complete';
+  if (!t.dueDate) return 'status-unscheduled';
+  const days = Math.ceil((new Date(t.dueDate + 'T00:00:00') - new Date('2026-07-22T00:00:00')) / 86400000);
+  if (days < 0) return 'status-overdue';
+  if (days === 0) return 'status-today';
+  if (days <= SOON_DAYS) return 'status-soon';
+  if (days <= SOONISH_DAYS) return 'status-soonish';
+  return 'status-future';
+}
+
+/* ---------------- Renderers ---------------- */
+function taskRowHtml(t, emphOverdue) {
+  const colorClass = dueColorClass(t);
+  const cls = 'task-row ' + colorClass + (emphOverdue && colorClass === 'status-overdue' ? ' emph' : '');
+  const statusIcon = STATUS_ICON[t.status] || '🗓️';
+  const prio = t.status === 'complete' ? PRIORITY_ICON.complete : (PRIORITY_ICON[t.priority] || '');
+  return `<div class="${cls}" data-workflow-status="${t.status}" data-due-color="${colorClass}" data-priority="${t.priority}" data-due="${t.due}">
+    <span class="task-status-icon" title="${t.status}"><span class="icon-glyph">${statusIcon}</span></span>
+    <span class="task-name">${t.name}</span>
+    ${t.note ? '<span class="task-note-dot" title="Has notes"></span>' : ''}
+    ${t.emoji ? `<span class="task-emoji">${t.emoji}</span>` : ''}
+    <span class="task-due">${t.due}</span>
+    ${prio ? `<span class="task-priority" title="${t.priority}"><span class="icon-glyph">${prio}</span></span>` : '<span class="task-priority"></span>'}
+  </div>`;
+}
+
+const FILTERS = ['All','Urgent','Overdue','Open','Undated'];
+
+function taskMatchesFilter(t, filter) {
+  switch (filter) {
+    case 'Urgent':   return t.priority === 'urgent';
+    case 'Overdue':  return dueColorClass(t) === 'status-overdue';
+    case 'Open':     return t.status !== 'complete' && t.status !== 'cancelled';
+    case 'Undated':  return !t.dueDate;
+    default:         return true;
+  }
+}
+
+function renderGlance() {
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+  const dateStr = now.toLocaleDateString([], {weekday:'long', month:'long', day:'numeric'});
+  const activeFilter = state.glanceFilter;
+
+  let sections = SHEETS.map(sheet => {
+    const allTasks = TASKS[sheet.slug];
+    const visible = allTasks.filter(t => taskMatchesFilter(t, activeFilter));
+    return `<div class="section-block" data-sheet="${sheet.slug}" ${visible.length === 0 ? 'style="display:none;"' : ''}>
+      <div class="section-head" onclick="this.parentElement.classList.toggle('collapsed')">
+        <span class="title"><span class="chev">▾</span>${sheet.name} <span class="count">(${visible.length})</span></span>
+      </div>
+      <div class="task-list">
+        ${visible.map(t => taskRowHtml(t, true)).join('') || '<div class="empty-note">No matching tasks</div>'}
+      </div>
+    </div>`;
+  }).join('');
+
+  return `
+    <div class="glance-header">
+      <div class="glance-datetime">
+        <div class="glance-clock">${timeStr}</div>
+        <div class="glance-date">${dateStr}</div>
+      </div>
+      <div class="glance-header-actions">
+        <button class="glance-icon-btn" id="glance-search-btn" title="Search" onclick="toggleGlanceSearch()">🔍</button>
+        <div class="glance-menu-wrap">
+          <button class="glance-icon-btn" id="glance-menu-btn" title="Menu" onclick="toggleGlanceMenu(event)">☰</button>
+          <div class="glance-menu-dropdown" id="glance-menu-dropdown">
+            <button onclick="setMode('manage')">⚙️ Manage</button>
+            <button>🖥️ Display profile</button>
+            <button>↪️ Sign out</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="glance-searchbar" id="glance-searchbar">
+      <input type="text" placeholder="Search tasks…" id="glance-search-input">
+    </div>
+    <div class="glance-filterbar">
+      ${FILTERS.map(f=>`<span class="chip ${f===activeFilter?'active':''}" onclick="setGlanceFilter('${f}')">${f}</span>`).join('')}
+    </div>
+    <div class="glance-stale hidden" id="glance-stale">Showing cached data — retrying…</div>
+    <div class="glance-sections">${sections}</div>
+    <button class="glance-fab" title="New task" onclick="openPanel()">+</button>
+    ${renderLegend()}
+  `;
+}
+
+/* Same three groups as prod's #legend-container (public/index.html):
+   Status (workflow emoji), Due (task-bar color swatches), Priority
+   (priority emoji). Collapsible so it doesn't eat Glance-mode space
+   when the user doesn't need the key. */
+function renderLegend() {
+  const open = state.legendOpen;
+  return `
+    <div class="legend-bar">
+      <button class="legend-toggle" onclick="toggleLegend()">${open ? '▾' : '▸'} Legend</button>
+      <div class="legend-body ${open ? 'open' : ''}">
+        <div class="legend-row">
+          <span class="legend-label">Status</span>
+          <span class="legend-chip"><span class="icon-glyph">🗓️</span> Not Started</span>
+          <span class="legend-chip"><span class="icon-glyph">⏳</span> In Progress</span>
+          <span class="legend-chip"><span class="icon-glyph">⏰</span> Pending</span>
+          <span class="legend-chip"><span class="icon-glyph">⛔️</span> Blocked</span>
+          <span class="legend-chip"><span class="icon-glyph">✅</span> Complete</span>
+          <span class="legend-chip"><span class="icon-glyph">✖️</span> Cancelled</span>
+        </div>
+        <div class="legend-row">
+          <span class="legend-label">Due</span>
+          <span class="legend-color-chip status-overdue">Overdue</span>
+          <span class="legend-color-chip status-today">Today</span>
+          <span class="legend-color-chip status-soon">1–${SOON_DAYS} days</span>
+          <span class="legend-color-chip status-soonish">${SOON_DAYS+1}–${SOONISH_DAYS} days</span>
+          <span class="legend-color-chip status-future">${SOONISH_DAYS+1}+ days</span>
+          <span class="legend-color-chip status-complete">Complete</span>
+          <span class="legend-color-chip status-unscheduled">Unscheduled</span>
+        </div>
+        <div class="legend-row">
+          <span class="legend-label">Priority</span>
+          <span class="legend-chip"><span class="icon-glyph">💤</span> Low</span>
+          <span class="legend-chip"><span class="icon-glyph">🟢</span> Medium</span>
+          <span class="legend-chip"><span class="icon-glyph">⚠️</span> High</span>
+          <span class="legend-chip"><span class="icon-glyph">☢️</span> Urgent</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderManage(screen) {
+  const screens = {
+    sheet: `
+      <div class="manage-card">
+        <h3>Household — sharing</h3>
+        <p class="sub">Owners control who can view or edit this sheet.</p>
+        <div class="row-list">
+          <div class="member-row"><span class="avatar">B</span><span class="name">brian@example.com</span><span class="role-badge owner">Owner</span></div>
+          <div class="member-row"><span class="avatar">J</span><span class="name">jamie@example.com</span><span class="role-badge">Editor</span></div>
+          <div class="member-row"><span class="avatar">K</span><span class="name">kai@example.com</span><span class="role-badge viewer">Viewer</span></div>
+        </div>
+      </div>
+      <div class="manage-card">
+        <h3>Add a member</h3>
+        <p class="sub">New shares default to Viewer.</p>
+        <div class="field-row">
+          <div class="field" style="flex:2"><input type="text" placeholder="user@example.com"></div>
+          <div class="field" style="flex:1">
+            <select><option>Viewer</option><option>Editor</option></select>
+          </div>
+        </div>
+        <button class="std-btn primary">Invite</button>
+      </div>
+      <div class="manage-card">
+        <h3>Public visibility</h3>
+        <div class="setting-row">
+          <div><div class="label">Include this sheet on public dashboard</div><div class="desc">Off by default. Notes are never shown publicly.</div></div>
+          <label class="toggle"><input type="checkbox"><span class="slider"></span></label>
+        </div>
+      </div>
+    `,
+    display: `
+      <div class="manage-card">
+        <h3>Display profile — this device</h3>
+        <p class="sub">Presentation choices are saved per device.</p>
+        <div class="setting-row">
+          <div class="label">Default mode</div>
+          <div class="segmented">
+            <button class="active">Glance</button><button>Standard</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="label">Row density</div>
+          <div class="segmented"><button>Compact</button><button class="active">Standard</button><button>Large</button></div>
+        </div>
+        <div class="setting-row">
+          <div><div class="label">Scale</div><div class="desc">−3 to +3, 10% per step</div></div>
+          <div class="segmented"><button>−</button><button style="min-width:40px;">0</button><button>+</button></div>
+        </div>
+        <div class="setting-row">
+          <div class="label">Show clock/date header</div>
+          <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+        </div>
+        <div class="setting-row">
+          <div class="label">Two-column layout on wide screens</div>
+          <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+        </div>
+        <div class="setting-row">
+          <div class="label">Reduced motion</div>
+          <label class="toggle"><input type="checkbox"><span class="slider"></span></label>
+        </div>
+      </div>
+      <div class="manage-card">
+        <h3>Refresh</h3>
+        <div class="setting-row">
+          <div><div class="label">Refresh interval</div><div class="desc">10s min · 10m max</div></div>
+          <div class="setting-control"><select><option>30s</option><option selected>60s</option><option>2m</option><option>5m</option></select></div>
+        </div>
+      </div>
+      <div class="manage-card">
+        <h3>Closed tasks</h3>
+        <div class="setting-row">
+          <div class="label">Show completed</div>
+          <div class="segmented"><button class="active">Hide</button><button>7 days</button><button>Always</button></div>
+        </div>
+        <div class="setting-row">
+          <div class="label">Show cancelled</div>
+          <div class="segmented"><button class="active">Hide</button><button>7 days</button><button>Always</button></div>
+        </div>
+      </div>
+    `,
+    account: `
+      <div class="manage-card">
+        <h3>Profile</h3>
+        <div class="setting-row"><div class="label">Display name</div><div class="setting-control"><input type="text" value="Brian"></div></div>
+        <div class="setting-row"><div class="label">Public username</div><div class="setting-control"><input type="text" value="brian" placeholder="unclaimed"></div></div>
+        <div class="setting-row">
+          <div><div class="label">Public dashboard</div><div class="desc">Off until explicitly enabled</div></div>
+          <label class="toggle"><input type="checkbox"><span class="slider"></span></label>
+        </div>
+      </div>
+      <div class="manage-card">
+        <h3>Sessions</h3>
+        <div class="row-list">
+          <div class="member-row"><span class="avatar">🖥️</span><span class="name">This device — Chrome, Windows</span><span class="role-badge">Active</span></div>
+          <div class="member-row"><span class="avatar">📱</span><span class="name">Pixel 8 — Chrome Mobile</span><span class="role-badge viewer">Idle 2d</span></div>
+        </div>
+      </div>
+    `
+  };
+  return `
+    <div class="manage-wrap">
+      <div class="manage-header">
+        <button class="manage-back" onclick="setMode('glance')">← Back to dashboard</button>
+        <div class="manage-title">Manage</div>
+      </div>
+      <div class="manage-tabs">
+        <div class="manage-tab ${screen==='sheet'?'active':''}" onclick="setManageScreen('sheet')">Sheet access</div>
+        <div class="manage-tab ${screen==='display'?'active':''}" onclick="setManageScreen('display')">Display profile</div>
+        <div class="manage-tab ${screen==='account'?'active':''}" onclick="setManageScreen('account')">Account</div>
+      </div>
+      ${screens[screen]}
+    </div>
+  `;
+}
+
+/* ---------------- State + wiring ---------------- */
+let state = { mode:'glance', width:'narrow', manageScreen:'sheet', glanceSearchOpen:false, glanceMenuOpen:false, glanceFilter:'All', taskStyle:'solid', legendOpen:false };
+
+function render() {
+  const root = document.getElementById('app-root');
+  root.className = 'app' + (state.taskStyle === 'outline' ? ' style-outline' : '');
+  if (state.mode === 'glance') root.innerHTML = renderGlance();
+  else root.innerHTML = renderManage(state.manageScreen);
+
+  document.getElementById('manage-nav-grp').style.display = state.mode === 'manage' ? 'flex' : 'none';
+
+  if (state.mode === 'glance') {
+    const bar = document.getElementById('glance-searchbar');
+    const btn = document.getElementById('glance-search-btn');
+    if (state.glanceSearchOpen) {
+      bar.classList.add('open');
+      btn.classList.add('active');
+      document.getElementById('glance-search-input').focus();
+    }
+    if (state.glanceMenuOpen) {
+      document.getElementById('glance-menu-dropdown').classList.add('open');
+    }
+  }
+}
+
+function toggleGlanceSearch() {
+  state.glanceSearchOpen = !state.glanceSearchOpen;
+  render();
+}
+
+function setGlanceFilter(f) {
+  state.glanceFilter = f;
+  render();
+}
+
+function toggleLegend() {
+  state.legendOpen = !state.legendOpen;
+  render();
+}
+
+function setTaskStyle(s) {
+  state.taskStyle = s;
+  document.querySelectorAll('#mock-toolbar [data-style]').forEach(b => b.classList.toggle('active', b.dataset.style === s));
+  render();
+}
+
+function toggleGlanceMenu(e) {
+  e.stopPropagation();
+  state.glanceMenuOpen = !state.glanceMenuOpen;
+  render();
+}
+
+function setMode(m) {
+  state.mode = m;
+  document.querySelectorAll('#mock-toolbar [data-mode]').forEach(b => b.classList.toggle('active', b.dataset.mode === m));
+  render();
+}
+const WIDTH_LABELS = {
+  narrow: 'Narrow desktop column · 420px (1 column)',
+  medium: 'Medium desktop panel · 860px (2 columns)',
+  full:   'Full desktop screen · ~1400px (3 columns)',
+};
+function setWidth(w) {
+  state.width = w;
+  document.getElementById('mock-frame').className = 'width-' + w;
+  document.getElementById('frame-label').textContent = WIDTH_LABELS[w];
+  document.querySelectorAll('#mock-toolbar [data-width]').forEach(b => b.classList.toggle('active', b.dataset.width === w));
+  render();
+}
+function setManageScreen(s) {
+  state.manageScreen = s;
+  document.querySelectorAll('#mock-toolbar [data-manage]').forEach(b => b.classList.toggle('active', b.dataset.manage === s));
+  render();
+}
+function openPanel() { document.getElementById('panel-backdrop').classList.add('open'); }
+function closePanel() { document.getElementById('panel-backdrop').classList.remove('open'); }
+
+document.addEventListener('click', () => {
+  if (state.glanceMenuOpen) { state.glanceMenuOpen = false; render(); }
+});
+
+document.querySelectorAll('#mock-toolbar [data-mode]').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
+document.querySelectorAll('#mock-toolbar [data-width]').forEach(b => b.addEventListener('click', () => setWidth(b.dataset.width)));
+document.querySelectorAll('#mock-toolbar [data-manage]').forEach(b => b.addEventListener('click', () => setManageScreen(b.dataset.manage)));
+document.querySelectorAll('#mock-toolbar [data-style]').forEach(b => b.addEventListener('click', () => setTaskStyle(b.dataset.style)));
+document.getElementById('toggle-panel-btn').addEventListener('click', openPanel);
+document.getElementById('panel-close-btn').addEventListener('click', closePanel);
+document.getElementById('panel-backdrop').addEventListener('click', e => { if (e.target.id === 'panel-backdrop') closePanel(); });
+
+render();
+</script>
+</body>
+</html>
