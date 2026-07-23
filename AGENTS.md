@@ -21,6 +21,31 @@ Codex owns **Readiness**, **QA**, and **Re-review**. These stages are read-only 
 
 Resolve the milestone ID from the current command, never from conversational recency. Read `docs/milestones/README.md`, the exact matching milestone file, linked canonical plans, the actual worktree/diff, and the available evidence before reaching a conclusion.
 
+## Local cross-agent handoff
+
+Every Codex-owned milestone stage—Readiness, QA, and Re-review—must read and update the durable local handoff at:
+
+```text
+.handoffs/M#-handoff.md
+```
+
+The `.handoffs/` directory is intentionally gitignored. Writing this file is the sole documentation-write exception to the default read-only review rule; it does not authorize application changes, milestone acceptance, canonical-plan edits, commits, pushes, deployments, production access, or external mutations. The checked-in milestone remains authoritative for status, decisions, risks, and evidence.
+
+At stage startup, read the existing handoff when present and verify its claims independently. Preserve earlier stage sections and add a new clearly labeled section for the current Readiness, QA, or Re-review pass. Do not silently rewrite Claude's implementation claims or a prior Codex review.
+
+Each Codex section must record:
+
+- Date, milestone, stage, scope, and reviewed packet or diff/commit range.
+- Current worktree condition and unrelated changes that must be preserved.
+- Findings ordered P0 through P3, or an explicit statement that there are no actionable findings.
+- Exact checks run with PASS, FAIL, or NOT RUN results and safe evidence paths.
+- Acceptance criteria verified, unverified, or incorrectly claimed.
+- Security/privacy, migration/recovery/rollback, accessibility/device, and scope assessments when relevant.
+- Readiness or gate recommendation, open P0/P1 count, and P2/P3 disposition needs.
+- Exact next action for Claude and any decision or validation required from Brian.
+
+Never place secrets, credentials, cookies, OAuth material, private task names/notes, raw production records, or other prohibited content in a handoff. A review stage is not complete until its local handoff section is written. If the file cannot be written, report the review as `Blocked` or `Partial` and explain why.
+
 ## Review behavior
 
 - Lead with actionable findings ordered P0 through P3; do not bury them in a summary.

@@ -11,7 +11,7 @@
 
 ## Outcome
 
-Deliver the management capabilities required for approved users to operate Dash2 without returning to V1: sheet lifecycle, memberships, ownership, curated preferences, invitations, user administration, recovery, and auditable overrides.
+Deliver the management capabilities required for approved users to operate Dash2 without returning to V1: List lifecycle, memberships, ownership, curated preferences, user administration, recovery, and auditable overrides.
 
 ## Prerequisites
 
@@ -20,11 +20,13 @@ Deliver the management capabilities required for approved users to operate Dash2
 
 ## In scope
 
-- Create, rename, archive, restore, approved purge, and ownership transfer for sheets.
+- Create, rename, recycle, restore, approved purge, and ownership transfer for Lists.
 - Add/change/revoke viewer and editor memberships.
 - User-specific sheet order/visibility and curated global/device preferences.
-- Admin user state/role, ownership recovery, invite administration, and approved account-deletion workflow.
+- Admin user state/role, ownership recovery, and approved account-recycle/purge workflow.
 - Audit events for membership, ownership, admin, recovery, and destructive actions.
+- Opaque Admin recovery/purge operations that do not reveal private task fields, private notes, or task-history field values.
+- Admin user detail limited to account state, global role, last activity, owned Lists, and memberships.
 - Clear confirmation, consequence, recovery, and error UI.
 - Desktop/tablet management behavior and approved phone support.
 - Contract, browser, permission, invariant, and audit tests.
@@ -35,6 +37,7 @@ Deliver the management capabilities required for approved users to operate Dash2
 - Admin impersonation unless explicitly added to launch scope.
 - Permanent deletion that bypasses approved retention/recovery policy.
 - UI-only authorization.
+- Invite issuance, redemption, and management (V2.1).
 
 ## Work packets
 
@@ -50,9 +53,9 @@ Implement existing-user sharing, default role, role changes, revocation, and ato
 
 Expose only approved settings. Validate server-backed values and keep device display choices distinct from global task/dashboard preferences.
 
-### M4.4 — Administration and invites
+### M4.4 — Administration and recovery
 
-Implement user enable/disable/role state, invitation lifecycle, owned-sheet disposition, recovery, and required audit events. Administrative UI must clearly identify high-impact actions.
+Implement user enable/disable/role state, owned-List disposition, recovery, and required audit events. Administrative UI must clearly identify high-impact actions.
 
 ### M4.5 — Permission/audit review
 
@@ -61,12 +64,14 @@ Use fresh Opus `xhigh` context to attempt horizontal/vertical privilege escalati
 ## Acceptance criteria
 
 - [ ] All lifecycle and sharing actions are authorized on the server with direct deny-path tests.
-- [ ] No user removal, role change, membership revoke, sheet archive/delete, or failed transfer can create an ownerless sheet.
+- [ ] No user removal, role change, membership revoke, List recycle/purge, or failed transfer can create an ownerless List.
 - [ ] New shares use the approved default role; role changes take effect immediately.
 - [ ] A user cannot move a task across sheets unless rights satisfy the M0 matrix in both sheets.
-- [ ] Archived sheets/tasks are recoverable within the approved window and excluded/included consistently.
+- [ ] Recycled Lists/tasks are recoverable within the approved window and excluded/included consistently.
 - [ ] Destructive confirmations identify object, impact, and recovery/purge consequences.
 - [ ] Device preferences do not overwrite global preferences and contain no private task data.
+- [ ] Admin recovery and purge succeeds where authorized without granting Admin read access to private tasks, private notes, or task-history field values; administrative audit metadata remains allowlisted.
+- [ ] Admin user-detail DTO/UI includes only approved account/List/membership metadata and excludes private task/note/history content.
 - [ ] Admin and access-sensitive actions create complete, redacted audit events.
 - [ ] Disabled users, removed members, and changed roles lose access without session expiry delay.
 - [ ] Required management workflows pass on desktop/tablet and the approved phone baseline.
@@ -83,7 +88,7 @@ Use fresh Opus `xhigh` context to attempt horizontal/vertical privilege escalati
 
 ## QA approach
 
-Codex tests as viewer, editor, owner, admin, disabled user, removed member, transferring owner, and recipient. It calls APIs directly, alters stale client state, forces failed transfer/member mutations, and verifies audit and recovery results.
+Codex tests as viewer, editor, owner, admin, disabled user, removed member, transferring owner, and recipient. It calls APIs directly, alters stale client state, forces failed transfer/member mutations, verifies audit and recovery results, and confirms Admin can perform authorized opaque recovery without receiving private task/note/history fields.
 
 Opus focuses on authorization, invariant preservation, confused-deputy/admin override, audit completeness, and destructive recovery—not cosmetic redesign.
 
@@ -126,4 +131,3 @@ Brian decision: Pending
 Decision date: —
 Notes: —
 ```
-

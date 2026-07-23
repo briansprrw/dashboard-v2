@@ -4,7 +4,7 @@
 **Owner/commander:** Brian  
 **Runbook assistant:** Claude  
 **PM/QA observer:** Codex  
-**Assistant model:** Claude Opus 4.8, `high` effort  
+**Assistant model:** Claude Sonnet 5, `high` effort +think  
 **Estimated focused time:** 2–4 days including observation  
 **Production impact:** Production migration and user cutover
 
@@ -28,11 +28,11 @@ Stop and obtain Brian's explicit decision if:
 
 - Any command target, credential scope, schema version, source fingerprint, or release identifier differs from the runbook.
 - Backup/export/recovery verification fails.
-- V1 cannot be made reliably read-only for the window.
+- The coordinated single-user pause cannot prevent V1 writes for the migration window.
 - Migration/reconciliation produces any unexplained difference.
 - A sheet/task is missing or assigned incorrectly.
 - Authentication/session behavior fails for normal users.
-- Any authorization or private/public data exposure appears.
+- Any authorization failure or protected-data exposure appears.
 - Primary narrow-display Glance mode is unusable.
 - A write error risks data loss or the rollback deadline is reached.
 
@@ -51,12 +51,12 @@ No agent may “fix forward” production data ad hoc inside the launch window.
 - Verify exact V1 source, Dash2 target, Worker/KV/routes, OAuth callback, DNS plan, and current D1 recovery point.
 - Create/verify independent V1 export in approved sensitive storage.
 - Confirm Dash2 target is fresh/expected and V1 remains unchanged.
-- Record Brian's approval to freeze writes.
+- Record Brian's approval to begin the coordinated single-user pause.
 
-### L2 — V1 write freeze
+### L2 — Coordinated V1 pause
 
-- Enable approved V1 maintenance/read-only behavior.
-- Verify representative mutations are denied and reads/status behave as planned.
+- Confirm Brian has stopped V1 use and no other active user is expected during the window; no V1 application change or formal write-freeze feature is required.
+- Verify the source has not changed during the pause.
 - Capture final source fingerprint.
 - Record Brian's approval to migrate.
 
@@ -69,37 +69,37 @@ No agent may “fix forward” production data ad hoc inside the launch window.
 
 ### L4 — Private validation
 
-- Validate owner, shared viewer/editor, admin, disabled-user, public-preview/anonymous if applicable, counts, sampled content, and primary display before general enablement.
+- Validate owner, admin, disabled-user, counts, sampled content, and primary display before general enablement. Validate viewer/editor only for V2 memberships deliberately created after migration; no V1 shares are imported.
 - Record Brian's approval to open access.
 
 ### L5 — Enable Dash2
 
 - Activate approved route/DNS/OAuth settings.
-- Verify cookies, headers, health/version/schema, login, core mutations, Glance, monitoring, and public disable controls.
+- Verify cookies, headers, health/version/schema, login, core mutations, Glance, and monitoring.
 - Communicate availability.
 
 ### L6 — Observation
 
-- Monitor authentication, 4xx/5xx, D1/KV, latency, public routes, reconciliation drift, and user-reported defects at the approved cadence.
+- Monitor authentication, 4xx/5xx, D1/KV, latency, reconciliation drift, and user-reported defects at the approved cadence.
 - Keep V1 data unchanged and the rollback route ready for the approved validation period.
 
 ## Acceptance criteria
 
 - [ ] Every gate has timestamp, operator, exact approved target/version, result, and Brian decision.
-- [ ] Backup/export/recovery evidence predates the write freeze and is independently verified.
-- [ ] V1 writes are frozen before the final fingerprint/export.
+- [ ] Backup/export/recovery evidence predates the coordinated pause and is independently verified.
+- [ ] Brian confirms the single-user V1 pause before the final fingerprint/export and V1 remains unchanged through migration.
 - [ ] Migration uses the accepted tool/schema/release candidate without modification.
 - [ ] Reconciliation and invariants match approved expected results with no unexplained difference.
-- [ ] Owner/shared/admin/disabled/public roles and representative data pass private validation.
-- [ ] Primary narrow display and core create/edit/complete/move/archive workflow pass in production.
-- [ ] Health/version/schema, cookies, headers, OAuth, DNS, monitoring, and public controls are correct.
+- [ ] Owner/admin/disabled roles and representative data pass private validation, including Admin denial for private task/note/history reads and successful opaque Admin recovery without protected fields; deliberately created V2 viewer/editor memberships are tested if present.
+- [ ] Primary narrow display and core create/edit/complete/move/recycle workflow pass in production.
+- [ ] Health/version/schema, cookies, headers, OAuth, DNS, and monitoring are correct.
 - [ ] No P0/P1 occurs during the initial observation window.
 - [ ] Brian explicitly declares launch successful or orders rollback.
 
 ## Rollback triggers
 
 - Missing/misassigned data or permission escalation.
-- Private/public data exposure.
+- Protected-data exposure.
 - Broad login/session failure.
 - Unrecoverable or unsafe writes.
 - Primary display unusable.
@@ -109,7 +109,7 @@ No agent may “fix forward” production data ad hoc inside the launch window.
 ## Rollback procedure
 
 1. Brian orders rollback.
-2. Disable Dash2 mutations and public routes.
+2. Disable Dash2 mutations.
 3. Route users back to V1 and restore approved V1 write behavior.
 4. Preserve Dash2 production state for diagnosis; do not merge writes back ad hoc.
 5. Account for any post-launch Dash2 writes through a separate reviewed export/reconciliation plan.
@@ -151,4 +151,3 @@ Brian decision: Pending
 Decision date: —
 Notes: —
 ```
-

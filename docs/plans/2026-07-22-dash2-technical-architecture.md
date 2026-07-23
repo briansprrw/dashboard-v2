@@ -1,9 +1,11 @@
 # Dash2 Technical Architecture
 
 **Target:** `dash2.dnky.us`  
-**Status:** Proposed architecture for approval  
-**Date:** 2026-07-22  
-**Related documents:** [Product plan](./2026-07-22-dash2-product-plan.md) · [Implementation plan](./2026-07-22-dash2-implementation-plan.md)
+**Status:** Approved (Gate C pending Brian's recorded sign-off); reconciled 2026-07-23
+**Date:** 2026-07-22 (reconciled 2026-07-23)
+**Related documents:** [Product plan](./2026-07-22-dash2-product-plan.md) · [Implementation plan](./2026-07-22-dash2-implementation-plan.md) · [Launch Contract](../milestones/M0.3-launch-contract-2026-07-23.md)
+
+> **M0 reconciliation (2026-07-23).** The architecture below is **approved** per [M0-D1..D25](../milestones/M0-approved-decisions-2026-07-23.md) (see the decision table at the end, now marked Approved). Two proposals were resolved **against** their original text: (1) **no V1 write freeze** is required — the final migration is a coordinated single-user pause, not a freeze (M0-D14); and (2) the repository model is **greenfield/independent**, not "V1 frozen in its current repository." Public-facing schema (`public_profiles`, `public_profile_sheets`), invites, and the server `device_profiles` table are **deferred V2.1 seams**, not launch tables. Search-engine indexing is permanently prohibited, so there is no `allow_indexing` seam. The user-facing term is **List** even though the storage table remains `sheets`. M0-D16 separates Admin operations from content visibility: V2 Admin cannot read private tasks, private notes, or task-history field values; cryptographic/owner-key protection is deferred to V2.1. M0-D25 removes V1 querying/profiling from M0; any later source profiling requires Brian's separate M6 authorization.
 
 ## Executive decision
 
@@ -12,7 +14,7 @@ Build Dash2 as a separate, strict-TypeScript Cloudflare application with:
 - Cloudflare Workers for API execution and static-asset delivery.
 - Hono for HTTP routing and middleware.
 - D1 for relational application data.
-- KV for opaque server-side sessions and short-lived OAuth/invite state.
+- KV for opaque server-side sessions and short-lived OAuth state.
 - A Vite-built React web application using one responsive component model.
 - Shared runtime schemas as the client/server contract.
 - SQL migrations, explicit repositories, and service-level transactions/invariants.
@@ -44,7 +46,7 @@ Authenticated browser / display device
           ├── static Vite assets
           ├── Hono /api/v1 routes
           ├── security headers
-          └── public page routing
+          └── authenticated application routing
                 │
        ┌────────┼───────────┐
        ▼        ▼           ▼
@@ -100,8 +102,7 @@ Responsible for:
 - Task lifecycle and field normalization.
 - Sheet lifecycle and ownership transfer.
 - Membership authorization.
-- Public-dashboard projection.
-- Invite reservation/redemption.
+- Separate protected-content authorization for private task, private note, and task-history field reads; global Admin role is not a bypass.
 - Audit-event creation.
 - Coordinating multi-statement writes.
 
@@ -163,7 +164,6 @@ dashboard-v2/
         sheets.ts
         tasks.ts
         memberships.ts
-        public.ts
         admin.ts
       policies/
         sheet-policy.ts
@@ -174,14 +174,11 @@ dashboard-v2/
         task-service.ts
         sheet-service.ts
         sharing-service.ts
-        invite-service.ts
-        public-dashboard-service.ts
       repositories/
         user-repository.ts
         task-repository.ts
         sheet-repository.ts
         membership-repository.ts
-        public-repository.ts
       session/
       errors/
     web/
@@ -222,16 +219,15 @@ This is a modular monolith, not a collection of services. Boundaries exist in co
 
 ### Design rules
 
-1. Emails, sheet names, and public usernames are attributes, never primary keys.
-2. Internal IDs are never used as public-dashboard identifiers.
+1. Emails and List names are attributes, never primary keys.
 3. Every task belongs to exactly one sheet.
 4. Every sheet has exactly one valid owner.
 5. Owner authority is canonical on the sheet record; viewer/editor sharing is represented separately.
-6. Soft deletion/archive is preferred for user-created content.
-7. Public inclusion is separate from authenticated access.
+6. Recycle-bin soft deletion with `recycled_at` is preferred for user-created content.
 8. Dates and enums are stored canonically and validated before persistence.
 9. Database constraints backstop service rules where D1/SQLite can express them safely.
 10. Audit history is append-only from normal application routes.
+11. Administrative authority and protected-content visibility are separate. Admin recovery/purge may use opaque IDs and allowlisted metadata but may not return private task, private note, or task-history field values.
 
 ### Core tables
 
@@ -242,8 +238,9 @@ id TEXT PRIMARY KEY
 display_name TEXT NOT NULL
 avatar_url TEXT
 global_role TEXT NOT NULL CHECK ('user', 'admin')
-state TEXT NOT NULL CHECK ('active', 'disabled')
+state TEXT NOT NULL CHECK ('active', 'disabled', 'recycled')
 timezone TEXT
+recycled_at INTEGER
 created_at INTEGER NOT NULL
 updated_at INTEGER NOT NULL
 last_seen_at INTEGER
@@ -268,11 +265,11 @@ Identity is separate so a future provider change does not rewrite ownership or t
 id TEXT PRIMARY KEY
 owner_user_id TEXT NOT NULL REFERENCES users(id)
 display_name TEXT NOT NULL
-state TEXT NOT NULL CHECK ('active', 'archived')
+state TEXT NOT NULL CHECK ('active', 'recycled')
 legacy_source_id TEXT UNIQUE
 created_at INTEGER NOT NULL
 updated_at INTEGER NOT NULL
-archived_at INTEGER
+recycled_at INTEGER
 ```
 
 `owner_user_id` is the single canonical owner. In the domain/API, the owner appears as an owner membership. Storage does not duplicate owner state in two tables.
@@ -307,7 +304,7 @@ updated_by_user_id TEXT REFERENCES users(id)
 created_at INTEGER NOT NULL
 updated_at INTEGER NOT NULL
 closed_at INTEGER
-archived_at INTEGER
+recycled_at INTEGER
 legacy_source_id TEXT
 ```
 
@@ -316,7 +313,7 @@ Rules:
 - `due_date` is `YYYY-MM-DD` or null.
 - Status and priority use fixed approved enums.
 - `closed_at` changes only on an open-to-closed or closed-to-open transition.
-- `archived_at` removes the task from active reads without destroying it.
+- `recycled_at` removes the task from active reads without destroying it and starts the approved recovery window.
 - Notes have an explicit maximum length.
 - Flags are validated as a bounded list before JSON serialization.
 - `sort_key` supports stable ordering. If manual reorder is deferred, new tasks can use a monotonic spacing strategy and deterministic tie-breaker.
@@ -332,7 +329,7 @@ changes_json TEXT NOT NULL
 created_at INTEGER NOT NULL
 ```
 
-Only approved task history is stored; sensitive values are not copied into general application logs.
+Only approved task history is stored; sensitive values are not copied into general application logs. Full task-history field values are retrievable only by the List owner. Admin policies and repositories may expose only allowlisted administrative metadata, never `changes_json` or equivalent protected values.
 
 #### `dashboards`
 
@@ -368,6 +365,8 @@ updated_at INTEGER NOT NULL
 
 Only a bounded, runtime-validated preference schema is accepted. Unknown legacy settings are reported and dropped rather than stored indefinitely.
 
+### V2.1 deferred schema seams — out of scope for V2
+
 #### `device_profiles`
 
 For normal browsers, a random device-profile ID and non-sensitive display choices may live in local storage. If synchronization or smart-frame management is approved, persist server-side profiles:
@@ -395,7 +394,6 @@ user_id TEXT PRIMARY KEY REFERENCES users(id)
 username_normalized TEXT NOT NULL UNIQUE
 username_display TEXT NOT NULL
 enabled INTEGER NOT NULL CHECK (0, 1)
-allow_indexing INTEGER NOT NULL CHECK (0, 1)
 theme_json TEXT NOT NULL
 updated_at INTEGER NOT NULL
 ```
@@ -410,6 +408,8 @@ PRIMARY KEY (user_id, sheet_id)
 ```
 
 Only owned sheets may be published initially. A service verifies ownership on every configuration change and every public projection.
+
+### Core tables (continued)
 
 #### `audit_events`
 
@@ -432,16 +432,20 @@ Authorization is expressed through named policy functions, not repeated SQL snip
 
 ```text
 canReadSheet(actor, sheet)
+canReadPrivateTask(actor, task, sheet)
+canReadPrivateNote(actor, task, sheet)
+canReadTaskHistoryFields(actor, task, sheet)
 canCreateTask(actor, sheet)
 canEditTask(actor, task, sheet)
-canArchiveTask(actor, task, sheet)
+canRecycleTask(actor, task, sheet)
 canPermanentlyDeleteTask(actor, task, sheet)
 canMoveTask(actor, sourceSheet, targetSheet)
 canManageMembers(actor, sheet)
 canTransferOwnership(actor, sheet)
-canConfigurePublicProfile(actor, profile)
 canAdministerUsers(actor)
 ```
+
+`actor.global_role === 'admin'` is not an automatic success condition for the three protected-content read policies. Admin recovery services load the minimum opaque identity/state needed for the operation and return a dedicated recovery DTO that excludes task fields, notes, and history values. Application-level enforcement is required in V2; encryption or owner-held keys that also protect against direct D1/infrastructure access are V2.1 scope.
 
 Each mutating service:
 
@@ -495,7 +499,7 @@ PUT    /api/v1/dashboards/:dashboardId/sheets
 GET    /api/v1/sheets
 POST   /api/v1/sheets
 PATCH  /api/v1/sheets/:sheetId
-POST   /api/v1/sheets/:sheetId/archive
+POST   /api/v1/sheets/:sheetId/recycle
 POST   /api/v1/sheets/:sheetId/restore
 GET    /api/v1/sheets/:sheetId/members
 PUT    /api/v1/sheets/:sheetId/members/:userId
@@ -506,7 +510,7 @@ GET    /api/v1/tasks?dashboardId=...&includeClosed=...
 POST   /api/v1/tasks
 PATCH  /api/v1/tasks/:taskId
 POST   /api/v1/tasks/:taskId/move
-POST   /api/v1/tasks/:taskId/archive
+POST   /api/v1/tasks/:taskId/recycle
 POST   /api/v1/tasks/:taskId/restore
 DELETE /api/v1/tasks/:taskId
 GET    /api/v1/tasks/:taskId/events
@@ -514,22 +518,26 @@ GET    /api/v1/tasks/:taskId/events
 GET    /api/v1/preferences
 PUT    /api/v1/preferences
 
+GET    /api/v1/admin/users
+PATCH  /api/v1/admin/users/:userId
+GET    /api/v1/admin/audit-events
+```
+
+`/api/v1/bootstrap` may return the signed-in user, default dashboard configuration, accessible sheet summaries, effective preferences, and a server timestamp in one read. Task data may be included if measurement shows it improves initial rendering without creating an oversized response.
+
+### V2.1 deferred endpoints and public DTO — out of scope for V2
+
+```text
 GET    /api/v1/public-profile
 PUT    /api/v1/public-profile
 GET    /api/v1/public-profile/preview
 GET    /api/v1/public/:username
-
-GET    /api/v1/admin/users
-PATCH  /api/v1/admin/users/:userId
-GET    /api/v1/admin/audit-events
 GET    /api/v1/admin/invites
 POST   /api/v1/admin/invites
 POST   /api/v1/admin/invites/:inviteId/cancel
 ```
 
-`/api/v1/bootstrap` may return the signed-in user, default dashboard configuration, accessible sheet summaries, effective preferences, and a server timestamp in one read. Task data may be included if measurement shows it improves initial rendering without creating an oversized response.
-
-### Public DTO
+The following public DTO design is retained only as a V2.1 planning seam and must not be implemented or exposed in V2.
 
 Public output is constructed from an allowlist:
 
@@ -557,7 +565,7 @@ Public output must not include:
 - Legacy sheet slugs.
 - Task notes.
 - Created-by/updated-by identities.
-- Internal timestamps or archive state.
+- Internal timestamps or recycle state.
 - Sharing or access-control metadata.
 
 ## Session and authentication architecture
@@ -566,12 +574,11 @@ Public output must not include:
 
 1. Browser requests `/auth/google`.
 2. Worker creates a high-entropy, expiring, one-time state record in KV.
-3. Any invite context is stored in the state record rather than trusted from the callback URL.
-4. Google returns an authorization code and state.
-5. Worker atomically consumes the state before token exchange completion can create a session.
-6. Worker verifies the identity and active Dash2 user/invite eligibility.
-7. Worker creates an opaque session record in KV.
-8. Browser receives only a secure HttpOnly session cookie.
+3. Google returns an authorization code and state.
+4. Worker atomically consumes the state before token exchange completion can create a session.
+5. Worker verifies the identity belongs to an active migrated Dash2 user.
+6. Worker creates an opaque session record in KV.
+7. Browser receives only a secure HttpOnly session cookie.
 
 ### Cookie policy
 
@@ -663,10 +670,12 @@ Use design tokens rather than scattered per-element values:
 --due-column-width
 --priority-column-width
 --display-scale
---color-overdue / today / soon / future / complete / unscheduled
+--color-overdue / today / soon / soonish / future / complete / unscheduled
 ```
 
-The task row is a CSS grid with protected icon/date columns and one flexible, truncating task-name column. The page uses container queries so the dashboard responds to its actual allocated width, including a narrow desktop panel, rather than assuming device type from user agent.
+The task row is a CSS grid with protected icon/date columns and one flexible, truncating task-name column. The page uses container queries so the dashboard responds to its actual allocated width, including a narrow desktop panel, rather than assuming device type from user agent. A validated local preference supplies min/max column bounds from 1–3 (default 1–3). Max is firm; min may yield at unsafe widths, and M3 visual evidence must expose that fallback.
+
+Due-band classification uses seven semantic bands. Local preferences may change the ordered, bounded, non-overlapping thresholds for soon/soonish/future; they never change the semantic IDs or persist task content.
 
 ### Accessibility
 
@@ -705,11 +714,9 @@ Static assets and API responses receive appropriate policies through Cloudflare 
 
 ### Rate and abuse controls
 
-- Rate-limit OAuth initiation, invite verification, and public username probes.
+- Rate-limit OAuth initiation and authenticated abuse-prone operations.
 - Do not reveal whether a private email is allowlisted through anonymous error detail.
-- Normalize public usernames before uniqueness checks.
-- Reserve application routes and abuse-prone names.
-- Apply stricter cache/rate policy to anonymous public responses than to static assets.
+- Add Cloudflare edge DDoS/abuse hardening as a V2.1 backlog item; V2 still uses bounded inputs and application rate controls.
 
 ## Performance budgets
 
@@ -733,7 +740,7 @@ Measure before adding client complexity. The likely bottleneck is DOM/layout vol
 - Avoid the V1 pattern of reading `MAX(row_index)` and then writing an adjacent value without a defined concurrency strategy.
 - If manual order launches, allocate spaced sort keys and rebalance under a controlled sheet operation; use deterministic ID/time tie-breakers.
 - Use optimistic concurrency on task edits if testing shows meaningful multi-user collisions.
-- Never blanket-apply cascades without reviewing archive, ownership transfer, audit, and recovery semantics.
+- Never blanket-apply cascades without reviewing recycle, ownership transfer, audit, and recovery semantics.
 
 ## Migration architecture
 
@@ -775,7 +782,7 @@ Reconcile
 
 ### Cutover consistency
 
-The recommended approach is a short V1 write freeze and one final repeatable import. Dual writes and change-data capture would introduce more risk than they remove for this application's size. If a near-zero-freeze requirement appears, revisit this decision before migration code is finalized.
+**Approved approach (M0-D14):** one final repeatable import with **no formal V1 write freeze**. Because Brian is the only active V1 user, cutover is a coordinated single-user pause rather than an announced freeze/maintenance window. Dual writes and change-data capture would introduce more risk than they remove for this application's size. An authorized V2 database wipe-and-recopy remains available before stability; V1 stays unchanged as the rollback source during validation.
 
 ## Testing architecture
 
@@ -794,8 +801,7 @@ The recommended approach is a short V1 write freeze and one final repeatable imp
 - Apply schema against representative imported data.
 - Verify constraints and indexes.
 - Exercise actual repository SQL.
-- Verify archive/restore and ownership transfer sequences.
-- Verify invite capacity under competing requests as closely as the local D1 environment permits.
+- Verify recycle/restore and ownership transfer sequences.
 
 ### Contract/API tests
 
@@ -821,12 +827,11 @@ Core browser flows:
 
 - Logged-out/login/error states.
 - View/refresh/stale dashboard.
-- Create/edit/quick-complete/move/archive/restore task.
+- Create/edit/quick-complete/move/recycle/restore task.
 - Enter/exit/restore Glance mode.
 - Viewer/editor/owner control visibility plus server enforcement.
 - Sheet sharing and ownership transfer.
-- Public preview versus anonymous output.
-- Admin user/invite recovery workflows.
+- Admin user/List recovery workflows, including protected-content denial.
 
 ### Visual regression tests
 
@@ -873,8 +878,8 @@ Visual snapshots support review; they do not replace semantic and functional ass
 
 - Health/version endpoint with no sensitive binding details.
 - Alert or review path for elevated 5xx, authentication failures, D1 errors, and migration mismatch.
-- Runbooks for session invalidation, public-route shutdown, user disablement, D1 recovery, failed migration, and Worker rollback.
-- Periodic invariant query for ownerless sheets, missing references, invalid roles/enums, and public configuration referencing archived content.
+- Runbooks for session invalidation, user disablement, D1 recovery, failed migration, and Worker rollback.
+- Periodic invariant query for ownerless Lists, missing references, invalid roles/enums, and public configuration referencing recycled content.
 
 ## Data privacy
 
@@ -882,27 +887,26 @@ Visual snapshots support review; they do not replace semantic and functional ass
 - Treat task names and notes as private application content.
 - Do not place private API responses in shared caches.
 - Do not persist task content in browser local storage by default.
-- Redact task content, invite tokens, OAuth data, cookies, and session IDs from logs.
-- Public data is produced through a dedicated projection, never by filtering a private DTO after serialization.
+- Redact task content, OAuth data, cookies, and session IDs from logs.
 - Define an eventual user-data export/deletion policy before broader external adoption.
 
 ## Architectural decisions to approve
 
 | Decision | Proposal | Approval |
 |---|---|---|
-| Repository | New `dashboard-v2` repository; V1 remains frozen in its current repository. | TBD |
-| Frontend | React + Vite with authored CSS and no generic visual component system. | TBD |
-| Backend | Hono modular monolith on one Cloudflare Worker. | TBD |
-| Storage | New Dash2 D1 database; KV for sessions/short-lived state only. | TBD |
-| API | Versioned `/api/v1`, runtime schemas, explicit DTOs. | TBD |
-| Ownership storage | Canonical `sheets.owner_user_id`; viewer/editor rows in memberships. | TBD |
-| Identifiers | New UUIDs; legacy identifiers retained only for migration reconciliation. | TBD |
-| Deletion | Soft-delete/archive normal content; bounded permanent purge workflow. | TBD |
-| Device preferences | Local non-sensitive display profile initially; server-backed profiles only if approved. | TBD |
-| Private browser cache | In-memory only for launch; retain visible data through refresh errors but not page reload. | TBD |
-| Migration | Repeatable transform into new DB plus short final V1 write freeze. | TBD |
-| Multi-service architecture | Reject; use one modular deployable application. | TBD |
-| ORM | Do not require one initially; use reviewed SQL repositories and migrations. | TBD |
+| Repository | New independent `dashboard-v2` repository (greenfield); V1 stays live and unchanged as a read-only migration source. | **Approved — M0-D11** |
+| Frontend | React + Vite with authored CSS and no generic visual component system. | **Approved — M0-D11** |
+| Backend | Hono modular monolith on one Cloudflare Worker. | **Approved — M0-D11** |
+| Storage | New Dash2 D1 database; KV for sessions/short-lived state only. | **Approved — M0-D11/D12** |
+| API | Versioned private-internal `/api/v1`, runtime schemas, explicit DTOs (not a supported third-party API). | **Approved — M0-D12** |
+| Ownership storage | Canonical `sheets.owner_user_id`; viewer/editor rows in memberships. | **Approved — M0-D12** |
+| Identifiers | New UUIDs; legacy identifiers retained only for migration reconciliation. | **Approved — M0-D12** |
+| Deletion | Recycle-bin soft-delete for normal content; bounded permanent-purge workflow. | **Approved — M0-D5** |
+| Device preferences | Local non-sensitive display profile at launch; server-backed profiles deferred (V2.1 seam). | **Approved — M0-D9/D10** |
+| Private browser cache | In-memory only for launch; retain visible data through refresh errors but not page reload. | **Approved — M0-D10** |
+| Migration | Repeatable transform into a new DB; **no V1 write freeze** — coordinated single-user pause; authorized wipe-and-recopy allowed pre-stability. | **Approved — M0-D14 (overrides "short write freeze")** |
+| Multi-service architecture | Reject; use one modular deployable application. | **Approved — M0-D11** |
+| ORM | Do not require one initially; use reviewed SQL repositories and migrations. | **Approved — M0-D12** |
 
 ## Deferred architecture decisions
 
@@ -925,4 +929,3 @@ Do not select infrastructure for these until the product feature is approved:
 - [Cloudflare D1 Wrangler commands, export, and Time Travel](https://developers.cloudflare.com/workers/wrangler/commands/d1/)
 - [Cloudflare Workers versions and deployments](https://developers.cloudflare.com/workers/versions-and-deployments/)
 - [Playwright test projects and device coverage](https://playwright.dev/docs/test-projects)
-

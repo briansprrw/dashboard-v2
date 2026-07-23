@@ -4,8 +4,8 @@
 **Owner:** Brian  
 **Implementation lead:** Claude  
 **PM/QA:** Codex  
-**Primary model:** Claude Sonnet 5, `high` effort  
-**Review model:** Claude Opus 4.8, `high` effort  
+**Primary model:** Claude Sonnet 5, `high` effort +think  
+**Review model:** Claude Sonnet 5, `high` effort +think  
 **Estimated focused time:** 3–4 days  
 **Production impact:** Isolated non-production Dash2 deployment only
 

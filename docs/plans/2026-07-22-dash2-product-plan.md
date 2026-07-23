@@ -1,13 +1,17 @@
 # Dash2 Product Plan
 
 **Product:** Dashboard V2 (`dash2.dnky.us`)
-**Status:** Proposal for product review
-**Date:** 2026-07-22
+**Status:** Reconciled to approved M0 decisions (2026-07-23)
+**Date:** 2026-07-22 (reconciled 2026-07-23)
 **Purpose:** Decide what the product should do before implementation begins
+
+> **M0 reconciliation (2026-07-23).** Brian's approved decisions ([M0-D1..D24](../milestones/M0-approved-decisions-2026-07-23.md)) and the [Launch Contract](../milestones/M0.3-launch-contract-2026-07-23.md) govern this document. Where the prose below still reads as an open proposal, the approved decision and the [source reconciliation](../milestones/M0.1-source-reconciliation-2026-07-23.md) take precedence. Key overrides applied inline: the product term is **List** (not Sheet); ordinary deletion is a **recycle bin** (not archive); **public dashboards, usernames, invites/onboarding, search, filters, selectable sort, multiple dashboards, and dedicated smart-frame sessions are deferred to V2.1**; the site and all future public output are permanently `noindex`; V1 shares/settings/invite codes are **not** migrated; layout is **automatic 1–3 column within device-local min/max bounds, with a provisional safety fallback subject to M3 evidence**; and Admin operations are separated from owner-only private task/note/history visibility. See the Launch Contract for the authoritative scope, role matrix, and acceptance IDs.
 
 ## How to review this document
 
-Every feature is now a plain Markdown checklist item. Replace `Unrated` on the **Your priority** line with one of the ratings below. Change `[ ]` to `[x]` after reviewing that feature.
+Each feature below shows one final priority. Brian's explicit priority overrides are used where provided; otherwise the recommended priority is final.
+
+Priority expresses value; release assignment controls implementation timing. Any feature marked `Release: V2.1 — out of scope for V2` must not appear in V2 work packets even when its priority is Critical or Important.
 
 - **Critical** — Dash2 cannot launch without it.
 - **Important** — Should be in the first release unless it threatens the launch.
@@ -32,10 +36,10 @@ Dash2 is not primarily a project-management suite. Its center of gravity is a hi
 2. **Use the available screen efficiently.** The application must be useful in the right third of a 1920×1080 desktop, full-screen on a monitor, and on phones, tablets, and Android smart frames.
 3. **Make display density intentional.** A first-class Glance mode should remove management chrome and decorative spacing without requiring browser fullscreen.
 4. **Use one responsive behavior model.** Desktop, mobile, tablet, and display devices must share the same workflows and domain behavior.
-5. **Make permissions understandable.** Owners, editors, viewers, administrators, and public visitors must have explicitly different capabilities.
-6. **Protect private information by design.** Public dashboards expose only deliberately selected sheets and fields.
+5. **Make permissions understandable.** Owners, editors, viewers, and administrators must have explicitly different capabilities.
+6. **Protect private information by design.** Admin authority must not expose private tasks, notes, or task-history field values.
 7. **Reduce product baggage.** Reintroduce current settings and administrative features only when they support a real use case.
-8. **Permit safe migration.** Existing users, sheets, tasks, sharing, settings, and invite information can be transformed into a new schema without making the old schema permanent.
+8. **Permit safe migration.** Approved users, roles, List ownership, and tasks can be transformed into a new schema while V1 shares, settings, and invite codes are deliberately omitted and counted.
 
 ## Non-goals for the first release
 
@@ -47,6 +51,8 @@ Dash2 is not primarily a project-management suite. Its center of gravity is a hi
 - Reproducing every current setting.
 - Supporting arbitrary custom task fields in the first release.
 - Maintaining API compatibility with the existing dashboard.
+- Public dashboards/usernames, invite onboarding/management, dedicated smart-frame sessions, search, filters, selectable sort, and multiple dashboards; these are V2.1 or backlog work, not V2.
+- Cryptographic or owner-key protection against direct database/infrastructure access; V2 enforces privacy at the application layer and V2.1 owns the cryptographic change.
 
 ## Design principles
 
@@ -81,15 +87,15 @@ Creation, editing, sharing, settings, and administration should be quickly reach
 - **Narrow desktop column**
   - One dense task column, large readable clock/date, minimal gutters, hidden management toolbar, and persistent scroll position.
 - **Full desktop screen**
-  - One wide column or optional two-column sheet layout, generous task-name space, and management controls that do not dominate the page.
+  - Automatic one-to-three-column List layout within the device-local min/max bounds, generous task-name space, and management controls that do not dominate the page.
 - **Phone**
   - One-column task list, touch-safe controls, and task details in a bottom sheet or full-height panel. There is no separate mobile feature implementation.
 - **iPad/tablet**
   - One or two columns based on usable width and chosen density. Touch and keyboard are both supported.
 - **Android smart frame**
-  - Glance mode by default, oversized type, automatic refresh, optional read-only/kiosk behavior, and no hover dependency.
+  - The normal authenticated responsive app in Glance mode, with oversized type, automatic refresh, and no hover dependency. Dedicated read-only/kiosk sessions are V2.1.
 - **Wall/ambient display**
-  - Optional auto-rotation or fixed selected dashboard, configurable clock visibility, wake-safe dark appearance, and no confidential controls on screen.
+  - The authenticated default dashboard with configurable clock visibility and wake-safe dark appearance. Auto-rotation and multiple dashboards are V2.1.
 
 ## Presentation modes
 
@@ -109,7 +115,7 @@ This is the spiritual successor to the current screenshot and a launch-critical 
 
 ### 2. Standard mode
 
-- Adds clear navigation, view controls, filters, and management affordances.
+- Adds clear navigation, approved view controls, and management affordances. Search, filters, and selectable sort are V2.1.
 - Uses comfortable spacing while retaining the same color-and-icon task grammar.
 - Serves as the primary editing and organization experience.
 
@@ -123,20 +129,19 @@ This is the spiritual successor to the current screenshot and a launch-critical 
 
 - **User:** An authenticated person with a profile, preferences, and memberships.
 - **Dashboard:** A user's selected arrangement of sheets for a specific viewing purpose. A user has a default dashboard and may later create additional ones.
-- **Sheet:** A named collection of tasks with one owner and zero or more members. This may be renamed to **List** during product review.
+- **List:** A named collection of tasks with one owner and zero or more members. (Approved term, M0-D2. "Sheet" survives only as the storage table name and in V1/migration references.)
 - **Task:** A unit of work belonging to exactly one sheet.
 - **Membership:** A user's owner, editor, or viewer relationship to a sheet.
-- **Public profile:** A reserved public username and public-dashboard configuration owned by a user.
-- **Public dashboard:** A read-only projection containing explicitly selected sheets and task fields.
-- **Invite:** A controlled way to allow a new account to sign in.
-- **Display profile:** Per-device presentation choices such as Glance mode, scale, clock, and visible sheets.
+- **Public profile/public dashboard (V2.1):** Deferred read-only public projection; permanently `noindex` when implemented.
+- **Invite (V2.1):** Deferred controlled onboarding mechanism.
+- **Device-local settings (V2):** Glance mode, scale, clock, due-band thresholds, min/max column bounds, and visible Lists stored locally. Named/synchronized display profiles are V2.1.
 
 ## Roles and permissions
 
 ### Viewer
 
 - Can view assigned sheets and tasks.
-- Cannot create, edit, move, archive, or delete tasks.
+- Cannot create, edit, move, recycle, restore, or delete tasks.
 - Cannot manage a sheet, its members, ownership, or public visibility.
 
 ### Editor
@@ -144,334 +149,283 @@ This is the spiritual successor to the current screenshot and a launch-critical 
 - Has all viewer capabilities.
 - Can create and edit tasks.
 - Can move tasks within a sheet.
-- Can move tasks between sheets only when they are an editor or owner of both.
-- Proposed: can archive tasks, but cannot permanently delete them.
-- Cannot rename sheets, manage members, transfer ownership, configure public inclusion, or delete sheets.
+- Can move tasks between Lists only when they are an editor or owner of both.
+- Can recycle tasks (send to the recycle bin), but cannot restore or permanently delete them (M0-D5).
+- Cannot rename Lists, manage members, transfer ownership, configure public inclusion, or delete Lists.
 
 ### Owner
 
 - Has all editor capabilities for the owned sheet.
-- Can archive and permanently delete tasks according to the approved retention policy.
-- Can rename, archive, restore, and delete the sheet.
-- Can invite or revoke members and change viewer/editor roles.
+- Can restore and permanently delete recycled tasks according to the approved retention policy.
+- Can rename, recycle, restore, and permanently delete the List.
+- Can add or revoke existing-user members and change viewer/editor roles.
 - Can transfer ownership.
-- Can configure public inclusion for the sheet.
 
 ### Admin
 
-- Can perform all task and sheet actions.
-- Can manage users, roles, invitations, recovery, ownership, and public configuration.
+- Can manage users, global roles, recovery, ownership, and allowlisted administrative metadata.
+- Can perform authorized opaque recovery/purge operations, but is not implicitly an owner/editor and cannot use Admin role to read or mutate protected task content.
+- Administrative authority does not grant protected-content visibility: Admin cannot read private tasks, private notes, or task-history field values. Recovery/purge operates by opaque identity and allowlisted metadata.
 - Administrative overrides must create an audit event.
 
 **Rules requiring approval:**
 
 - An owner can never remove their own membership without transferring ownership.
 - Every sheet must have exactly one valid owner.
-- A user deletion must transfer or archive owned sheets before the user is removed.
+- An account recycle/purge must transfer or recycle owned Lists before the user is removed.
 - New shares default to viewer.
-- Public access is separate from authenticated membership.
-- Administrators can override access for support and recovery, with an audit entry.
+- Administrators can override ownership/recovery state for support, with an audit entry, without receiving protected content.
 
 ## Feature inventory for prioritization
 
 ### A. Dashboard and at-a-glance display
 
 - [ ]  **A1. Colored task rows** — Preserve strong due-state/status colors similar to the existing dashboard.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **A2. Stable row information layout** — Status icon, task name, note marker, due date/TBD, and priority icon retain predictable positions.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **A3. Section grouping** — Group tasks by sheet with collapsible section headings.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **A4. Glance mode** — Chrome-free, pixel-efficient display mode independent of browser fullscreen.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **A5. Date and clock** — Large configurable date/time header suitable for a side monitor or smart frame.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+  - Priority: **Important**
 - [ ]  **A6. Adjustable scale and density** — Increase/decrease global scale and choose compact, standard, or large row density per device.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **A7. Automatic refresh** — Refresh in the background and show stale/offline state without clearing visible tasks.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **A8. Remember display state** — Remember mode, scale, section collapse, visible sheets, and scroll preference per device.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
-- [ ]  **A9. Full-screen sheet utilization** — Allow one- or two-column section flow on wide screens.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+  - Priority: **Important**
+- [ ]  **A9. Automatic bounded column flow** — Automatically choose one to three columns within local min/max settings; the minimum may yield temporarily at unsafe widths pending M3 evaluation.
+  - Priority: **Important**
 - [ ]  **A10. Hide dashboard controls** — Auto-hide or minimize controls in Glance mode.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **A11. Theme presets** — Dark default plus high-contrast and light options.
-  - Recommended priority: **Nice to Have**
-  - Your priority: `Important`
+  - Priority: **Important**
 - [ ]  **A12. Custom colors and emoji** — Limited, validated customization rather than dozens of unconstrained settings.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+  - Priority: **Important**
   - Notes: Freeform emojis, but colors shifted into Themes instead.
 - [ ]  **A13. Multiple saved dashboards** — Different arrangements such as Work, Home, and Smart Frame.
-  - Recommended priority: **Nice to Have**
-  - Your priority: `Unrated`
+  - Priority: **Nice to Have**
+  - Release: **V2.1 — out of scope for V2**
 - [ ]  **A14. Kiosk/display link** — Read-only device-specific link or session for a trusted household display.
-  - Recommended priority: **Nice to Have**
-  - Your priority: `Unrated`
+  - Priority: **Nice to Have**
+  - Release: **V2.1 — out of scope for V2**
 - [ ]  **A15. Sheet auto-rotation** — Rotate through selected sheets on an ambient display.
-  - Recommended priority: **Nice to Have**
-  - Your priority: `Unrated`
+  - Priority: **Nice to Have**
+  - Release: **V2.1 — out of scope for V2**
 
 ### B. Task management
 
 - [ ]  **B1. Create task** — Fast creation with sheet, name, status, priority, due date, notes, and flags.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **B2. Edit task** — Edit all supported fields from keyboard, pointer, or touch.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
-- [ ]  **B3. Archive task** — Recoverable removal from active views.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
+- [ ]  **B3. Recycle task** — Recoverable removal from active views (30-day recycle bin).
+  - Priority: **Critical**
 - [ ]  **B4. Permanent deletion** — Explicit secondary action, limited by role and retention policy.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+  - Priority: **Important**
 - [ ]  **B5. Move task** — Move between sheets when permissions allow it.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **B6. Status** — Not started, in progress, pending, blocked, complete, and cancelled.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **B7. Priority** — Low, medium, high, and urgent.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **B8. Due date or TBD** — Dates are optional; undated work is shown as TBD.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **B9. Notes** — Private task details shown through a clear indicator.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **B10. Emoji flags** — Small user-selectable markers for additional visual meaning.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+  - Priority: **Important**
 - [ ]  **B11. Quick complete** — One gesture, click, or keyboard action to complete a task.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
-- [ ]  **B12. Undo recent action** — Recover from complete, move, or archive actions.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+  - Priority: **Important**
+- [ ]  **B12. Undo recent action** — Provide a 10-second Undo action after quick-complete, move, or recycle.
+  - Priority: **Important**
 - [ ]  **B13. Task history** — Record material changes and actor/time.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+  - Priority: **Important**
 - [ ]  **B14. Search** — Search task names and, where authorized, notes.
-  - Recommended priority: **Important**
-  - Your priority: `Nice to have`
+  - Priority: **Nice to Have**
+  - Release: **V2.1 — out of scope for V2**
 - [ ]  **B15. Sort per sheet** — Due date, priority, status, name, or manual ordering.
-  - Recommended priority: **Important**
-  - Your priority: `Nice to have`
+  - Priority: **Nice to Have**
+  - Release: **V2.1 — out of scope for V2**
   - Notes: Prior to this, keep current logic: Urgent first always. Then sort by date, then short by importance, then alphabetically
 - [ ]  **B16. Filters** — Urgent, overdue, open, closed, undated, or selected status.
-  - Recommended priority: **Important**
-  - Your priority: `Nice to have`
+  - Priority: **Nice to Have**
+  - Release: **V2.1 — out of scope for V2**
 - [ ]  **B17. Manual reordering** — Drag or keyboard reorder tasks within a sheet.
-  - Recommended priority: **Nice to Have**
-  - Your priority: `Nice to have`
-- [ ]  **B18. Bulk actions** — Select multiple tasks to update, move, or archive.
-  - Recommended priority: **Nice to Have**
-  - Your priority: `Not important`
+  - Priority: **Nice to Have**
+  - Release: **V2.1 — out of scope for V2**
+- [ ]  **B18. Bulk actions** — Select multiple tasks to update, move, or recycle.
+  - Priority: **Not Important**
+  - Release: **V2.1 backlog — out of scope for V2**
 - [ ]  **B19. Recurring tasks** — Generate future instances from a defined cadence.
-  - Recommended priority: **Nice to Have**
-  - Your priority: `Not important`
+  - Priority: **Not Important**
+  - Release: **V2.1 backlog — out of scope for V2**
 - [ ]  **B20. Subtasks** — Child checklist/tasks associated with a parent.
-  - Recommended priority: **Not Important**
-  - Your priority: `Unrated`
+  - Priority: **Not Important**
+  - Release: **V2.1 backlog — out of scope for V2**
 - [ ]  **B21. Tags** — Cross-sheet labels and filters.
-  - Recommended priority: **Nice to Have**
-  - Your priority: `Not Important`
+  - Priority: **Not Important**
+  - Release: **V2.1 backlog — out of scope for V2**
 - [ ]  **B22. Attachments** — Files or links attached to tasks.
-  - Recommended priority: **Not Important**
-  - Your priority: `Unrated`
+  - Priority: **Not Important**
+  - Release: **V2.1 backlog — out of scope for V2**
 
 ### C. Sheets, dashboards, and sharing
 
-- [ ]  **C1. Create, rename, and archive sheet** — Owner-managed sheet lifecycle.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+- [ ]  **C1. Create, rename, and recycle List** — Owner-managed List lifecycle.
+  - Priority: **Critical**
 - [ ]  **C2. Sheet ordering** — User-specific order within a dashboard.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **C3. Show or hide sheet** — User chooses which accessible sheets appear on a dashboard.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **C4. Owner/editor/viewer memberships** — Explicit access roles enforced by the API.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **C5. Sharing management** — Owners add existing users, choose roles, and revoke access.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **C6. Ownership transfer** — Safe transfer that cannot create an ownerless sheet.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+  - Priority: **Important**
 - [ ]  **C7. Multiple dashboards** — Reuse sheets in multiple saved arrangements.
-  - Recommended priority: **Nice to Have**
-  - Your priority: `Not important`
+  - Priority: **Not Important**
+  - Release: **V2.1 — out of scope for V2**
 - [ ]  **C8. Dashboard sharing** — Share an authenticated dashboard arrangement with selected users.
-  - Recommended priority: **Nice to Have**
-  - Your priority: `Not important`
+  - Priority: **Not Important**
+  - Release: **V2.1 — out of scope for V2**
 - [ ]  **C9. Sheet templates** — Create a sheet from a reusable configuration.
-  - Recommended priority: **Not Important**
-  - Your priority: `Not important`
+  - Priority: **Not Important**
+  - Release: **V2.1 backlog — out of scope for V2**
 
 ### D. Accounts and authentication
 
 - [ ]  **D1. Google sign-in** — Continue Google OAuth with server-side sessions.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
-- [ ]  **D2. Allowlisted or invited accounts** — Only approved users can create a session.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
+- [ ]  **D2. Migrated approved accounts** — Only migrated active V1 users can create a V2 session; invite onboarding is V2.1.
+  - Priority: **Critical**
 - [ ]  **D3. Invite codes** — Capacity-limited, expiring or cancelable invitations with atomic redemption.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+  - Priority: **Important**
+  - Release: **V2.1 — out of scope for V2**
 - [ ]  **D4. Session management** — Secure, sliding sessions with immediate revocation after user removal or role change.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
-- [ ]  **D5. Profile basics** — Display name, avatar, locale/timezone, and optional public username.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
+- [ ]  **D5. Profile basics** — Use Google-provided display name/avatar and browser-derived locale/timezone; V2 has no profile editor or public username.
+  - Priority: **Important**
+  - Release: **V2**
 - [ ]  **D6. Active sessions list** — Let users view and revoke their devices.
-  - Recommended priority: **Nice to Have**
-  - Your priority: `Unrated`
+  - Priority: **Nice to Have**
+  - Release: **V2.1 — out of scope for V2**
 - [ ]  **D7. Additional identity providers** — Microsoft, Apple, or passwordless login.
-  - Recommended priority: **Not Important**
-  - Your priority: `Nice to have`
+  - Priority: **Nice to Have**
+  - Release: **V2.1 — out of scope for V2**
 
-### E. Public dashboards
+### E. Public dashboards — V2.1 deferred
+
+All public-output features below are out of scope for V2 regardless of priority. E3.5 private tasks and E8 permanent noindex enforcement are V2 protection requirements, not public-output launch features.
 
 - [ ]  **E1. Public username** — Unique, normalized, reserved-word-aware public path such as `/brian`.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+  - Priority: **Important**
+  - Release: **V2.1 — out of scope for V2**
 - [ ]  **E2. Public enable or disable** — Public output is off until the owner explicitly enables it.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
+  - Release: **V2.1 — out of scope for V2**
 - [ ]  **E3. Select public sheets** — Owner chooses which owned sheets appear publicly.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
+  - Release: **V2.1 — out of scope for V2**
 - [ ]  **E3.5.  Tasks should be able to be marked as Private**
-  - Priority: `Important`
-  - Notes: Private tasks should be only viewable to sheet owners, not other editors, viewers, or public.
+  - Priority: **Important**
+  - Release: **V2**
+  - Notes: Private tasks should be viewable only to List owners, not editors, viewers, Admin, or public users.
 - [ ]  **E4. Public field allowlist** — Default output includes task name, display status, priority, due date, and public sheet name only.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
+  - Release: **V2.1 — out of scope for V2**
 - [ ]  **E5. Notes private by default** — Notes, internal IDs, emails, timestamps, and internal slugs never appear publicly.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
+  - Release: **V2.1 — out of scope for V2**
   - Notes: Should be viewable to editors and viewers of sheet unless note is marked private.
 - [ ]  **E6. Public preview** — Authenticated owner previews exactly what an anonymous visitor will see.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
+  - Release: **V2.1 — out of scope for V2**
 - [ ]  **E7. Immediate revocation** — Disabling a profile or sheet removes it from public responses immediately.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
-- [ ]  **E8. Search indexing choice** — Owner chooses whether indexing is allowed; default is no-index.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
+  - Release: **V2.1 — out of scope for V2**
+- [ ]  **E8. Permanent noindex enforcement** — Every Dash2 surface, including any future public output, remains `noindex`; no user, owner, or administrator control may enable search-engine indexing.
+  - Priority: **Critical**
+  - Release: **V2**
 - [ ]  **E9. Public theme and layout** — Limited choice of theme, density, clock, and included fields.
-  - Recommended priority: **Nice to Have**
-  - Your priority: `Unrated`
+  - Priority: **Nice to Have**
+  - Release: **V2.1 — out of scope for V2**
 - [ ]  **E10. Secret unlisted link** — Opaque non-indexed URL separate from the public username.
-  - Recommended priority: **Nice to Have**
-  - Your priority: `Unrated`
+  - Priority: **Nice to Have**
+  - Release: **V2.1 — out of scope for V2**
 - [ ]  **E11. Public subscriptions or feeds** — Read-only calendar or RSS/JSON feed.
-  - Recommended priority: **Not Important**
-  - Your priority: `Unrated`
+  - Priority: **Not Important**
+  - Release: **V2.1 backlog — out of scope for V2**
 
 ### F. Settings and personalization
 
-- [ ]  **F1. Device display profile** — Mode, scale, density, clock, layout, and visible dashboard saved per device.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
-- [ ]  **F2. User task preferences** — Sort/filter defaults, completed-task retention, and date formatting follow the user.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+- [ ]  **F1. Device display profile** — Mode, scale, density, clock, due-band thresholds, min/max column bounds, and visible dashboard saved locally per device.
+  - Priority: **Critical**
+- [ ]  **F2. User task preferences** — Completed-task retention and date formatting follow the user globally; device-specific display choices do not overwrite them.
+  - Priority: **Important**
+  - Release: **V2 launch** (sort/filter defaults deferred to V2.1)
 - [ ]  **F3. Curated visual settings** — Validated color palette and status/priority icon choices.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+  - Priority: **Important**
 - [ ]  **F4. Configurable refresh interval** — Safe bounded interval with a sensible default.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+  - Priority: **Important**
   - Notes: 60s default, 10s min, 10 mins max
 - [ ]  **F5. Closed-task visibility** — Hide complete/cancelled immediately or after a bounded number of days.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+  - Priority: **Important**
   - Notes: Complete and cancelled should be separate config options
 - [ ]  **F6. Reduced motion** — Honor system preference and allow explicit override.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+  - Priority: **Important**
 - [ ]  **F7. Arbitrary CSS or color strings** — Carry forward unrestricted styling values.
-  - Recommended priority: **Not Important**
-  - Your priority: `Unrated`
+  - Priority: **Not Important**
 - [ ]  **F8. Every legacy setting** — Preserve all current settings regardless of usage.
-  - Recommended priority: **Not Important**
-  - Your priority: `Unrated`
+  - Priority: **Not Important**
 
 ### G. Administration and operations
 
 - [ ]  **G1. User list and role management** — Add, deactivate, promote, or remove users safely.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
-- [ ]  **G2. User detail** — See owned sheets, memberships, last activity, and account state.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
+- [ ]  **G2. User detail** — Admin sees account state, global role, last activity, owned Lists, and memberships, never private task/note/history content.
+  - Priority: **Important**
 - [ ]  **G3. Sheet recovery and ownership** — Transfer ownership and recover orphaned content.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **G4. Invite management** — Create, inspect, expire, and cancel invites.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+  - Priority: **Important**
+  - Release: **V2.1 — out of scope for V2**
 - [ ]  **G5. Audit log** — Record administrative, ownership, sharing, and public-visibility changes.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+  - Priority: **Important**
 - [ ]  **G6. Read-only user emulation** — Preview another user's dashboard without mutating it.
-  - Recommended priority: **Nice to Have**
-  - Your priority: `Unrated`
+  - Priority: **Nice to Have**
 - [ ]  **G7. System health view** — Show deployment version, migration version, recent API errors, and data checks.
-  - Recommended priority: **Nice to Have**
-  - Your priority: `Unrated`
+  - Priority: **Nice to Have**
 
 ### H. Reliability, accessibility, and security
 
 - [ ]  **H1. Runtime validation** — Validate every API input, field length, enum, date, and identifier.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **H2. Database invariants** — Foreign keys, checks, uniqueness, and ownership rules where practical.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **H3. Typed API contracts** — Client and server share explicit request and response schemas.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **H4. Authorization matrix tests** — Verify every role against every protected action.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
-- [ ]  **H5. Browser workflow tests** — Cover sign-in state, task CRUD, sharing, display modes, and public preview.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
+- [ ]  **H5. Browser workflow tests** — Cover sign-in state, task CRUD, sharing, display modes, privacy denials, and recovery.
+  - Priority: **Critical**
 - [ ]  **H6. Responsive visual tests** — Cover narrow desktop, 1080p, phone, iPad, and smart-frame sizes.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **H7. Keyboard operation** — Core task and navigation flows do not require a pointer.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+  - Priority: **Important**
 - [ ]  **H8. Screen-reader semantics** — Meaningful landmarks, labels, live states, and dialog focus.
-  - Recommended priority: **Important**
-  - Your priority: `Unrated`
+  - Priority: **Important**
 - [ ]  **H9. Security headers** — CSP-compatible frontend, HSTS, frame protection, nosniff, and referrer policy.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
 - [ ]  **H10. Backup and restore rehearsal** — Demonstrate recovery before production migration.
-  - Recommended priority: **Critical**
-  - Your priority: `Unrated`
+  - Priority: **Critical**
+
+- [ ]  **H11. Cloudflare edge abuse and DDoS hardening** — Beyond the V2 launch baseline, evaluate and configure appropriate Cloudflare rate limiting, WAF/abuse controls, alerting, and cost safeguards for the deployed plan without exposing private request content.
+  - Priority: **Important**
+  - Release: **V2.1 backlog — out of scope for V2**
 
 ## Task display specification
 
@@ -482,7 +436,7 @@ This is the spiritual successor to the current screenshot and a launch-critical 
 3. **Notes indicator:** shown only when notes exist; opens details for authorized users.
 4. **Due label:** short date such as `7/22`, relative label if later approved, or `TBD`.
 5. **Priority icon:** fixed right column.
-6. **Due-state color:** overdue, today, soon, future, completed, and unscheduled use visually distinct treatments.
+6. **Due-state color:** overdue, today, soon, soonish, future, complete, and unscheduled use visually distinct treatments. Soon/soonish/future day thresholds are locally configurable, ordered, bounded, and non-overlapping.
 
 ### Responsive metadata order
 
@@ -534,7 +488,7 @@ Modernization should improve consistency, focus, safety, and responsiveness with
 1. Use the quick action or edit panel.
 2. Record completion time and actor.
 3. Keep it visible or hide it according to user preference.
-4. Offer a short undo window.
+4. Offer a 10-second Undo window.
 
 ### Share a sheet
 
@@ -543,13 +497,13 @@ Modernization should improve consistency, focus, safety, and responsiveness with
 3. The UI explains the exact abilities before confirmation.
 4. The change is logged and effective immediately.
 
-### Publish a dashboard
+### Publish a dashboard (V2.1 — out of scope for V2)
 
 1. User claims an available public username.
 2. User enables public access.
 3. User selects owned sheets and allowed public fields.
 4. Preview shows the anonymous result using the actual public API.
-5. User publishes; default response headers prevent indexing unless enabled.
+5. User publishes; response headers and page metadata continue to enforce `noindex` with no enable-indexing control.
 6. User can revoke the entire page or individual sheets immediately.
 
 ## Product policies requiring explicit decisions
@@ -559,91 +513,93 @@ Fill these in before implementation begins.
 ### P1. Product term: Sheet vs List
 
 - Proposed default: Keep **Sheet** for migration familiarity; reconsider after the prototype.
-- Approved decision: `TBD`
+- **Approved decision (M0-D2):** Use **List** as the canonical user-facing term. "Sheet" remains only as a storage/table identifier and in V1/migration references.
 
 ### P2. Can editors delete or archive tasks?
 
 - Proposed default: Editors can archive; owners and admins can permanently delete.
-- Approved decision: `TBD`
+- **Approved decision (M0-D3/D5):** Editors may **recycle** tasks. Only the List **owner** (and Admin) may restore or permanently delete an individual recycled task.
 
 ### P3. Closed-task retention
 
 - Proposed default: Keep indefinitely, hide by user preference, and archive after a configurable period.
-- Approved decision: `TBD`
+- **Approved decision (M0-D5):** Closed tasks stay live and are governed by **visibility** controls (complete and cancelled are separate hide / N-days / always options). Deletion is a separate 30-day **recycle-bin** path, not archival aging.
 
 ### P4. Sheet deletion
 
 - Proposed default: Soft-delete for 30 days before permanent purge.
-- Approved decision: `TBD`
+- **Approved decision (M0-D5):** Recycle a List with Windows folder semantics — List and all contained tasks/history move and restore as one unit; 30-day window; owner/admin early purge with confirmation.
 
 ### P5. Task deletion
 
 - Proposed default: Archive first; permanent deletion is available from the archive.
-- Approved decision: `TBD`
+- **Approved decision (M0-D5):** Recycle first (recycle bin, not archive). Editor recycles; owner/admin restore or permanently delete; permanent delete purges the task and its history.
 
 ### P6. Default share role
 
 - Proposed default: Viewer.
-- Approved decision: `TBD`
+- **Approved decision (M0-D3):** New List shares default to **Viewer**.
 
 ### P7. Existing `can_see=1` migration
 
 - Proposed default: Migrate existing non-owner shares to editor to preserve capability, then allow owners to reduce access.
-- Approved decision: `TBD`
+- **Approved decision (M0-D3/D13 — overrides the proposed default):** V1 sharing/access-control rows are **not migrated**. Users deliberately re-share Lists in V2 (new shares default to Viewer).
 
 ### P8. Public notes
 
 - Proposed default: Never public in the Dash2 launch.
-- Approved decision: `TBD`
+- **Approved decision (M0-D7):** Notes are **never** public. Public output as a whole is deferred to V2.1.
 
 ### P9. Public search indexing
 
 - Proposed default: Disabled.
-- Approved decision: `TBD`
+- **Approved decision (M0-D7):** The entire site is `noindex` unconditionally; users are never offered an indexing control.
 
 ### P10. Public username changes
 
 - Proposed default: Allowed with a cooldown; reserve the prior name temporarily.
-- Approved decision: `TBD`
+- **Approved decision (M0-D7):** Deferred (V2.1). Public usernames are not in V2. When introduced, a username is set during profile setup; users cannot self-change it and no redirects are provided; an authorized backend operator may correct it.
 
 ### P11. Admin override
 
 - Proposed default: Allowed and always audited.
-- Approved decision: `TBD`
+- **Approved decision (M0-D16; supersedes the content-access portion of M0-D6):** V2 Admin has administrative/recovery God Mode but cannot read private tasks, private notes, or task-history field values. Sensitive actions/overrides are **audited**. Cryptographic/owner-key protection against direct database or infrastructure access is deferred to V2.1.
 
 ### P12. Multiple dashboards
 
 - Proposed default: Defer until the default-dashboard experience is proven.
-- Approved decision: `TBD`
+- **Approved decision (M0-D2):** Deferred. V2 launches with exactly **one dashboard** per user.
 
 ### P13. Smart-frame authentication
 
 - Proposed default: Long-lived, revocable display session that is read-only by default.
-- Approved decision: `TBD`
+- **Approved decision (M0-D7/D10):** Dedicated smart-frame display sessions/profiles are **deferred (V2.1)**. Smart-frame-sized layouts must still render at launch. Launch uses ordinary 30-day sliding sessions.
 
 ### P14. Wide-screen layout
 
 - Proposed default: User-selectable one- or two-column sections.
-- Approved decision: `TBD`
+- **Approved decision (M0-D8/D24 — overrides the proposed default):** Layout flows **automatically** from one to three columns based on available width, through 1920×1080, within local minimum/maximum bounds (default 1–3). There is no fixed-count selector or binary toggle. The maximum is firm; provisionally, the minimum may yield at unsafe widths and must be evaluated at the M3 visual gate. Portrait-desktop and ultrawide layouts are future scope.
 
 ### P15. Offline behavior
 
 - Proposed default: Show the last successful in-memory data read with a timestamp; do not allow offline writes.
-- Approved decision: `TBD`
+- **Approved decision (M0-D10):** On connectivity loss, keep the current in-memory dashboard visible, label it `Offline`, and disable edits. No private task content is persisted for page-reload offline use. Offline validity ends at the locally known session/token expiry.
 
 ## Launch definition
 
+> The authoritative launch scope, non-goals, role matrix, and acceptance IDs now live in the [M0.3 Launch Contract](../milestones/M0.3-launch-contract-2026-07-23.md). The list below is reconciled to it.
+
 Dash2 is ready for launch when:
 
-- A migrated user can sign in at `dash2.dnky.us` and see the correct sheets and tasks.
-- The narrow desktop-column layout is at least as glanceable and space-efficient as the reference screenshot.
+- A migrated user can sign in at the launch host and see the correct Lists and tasks.
+- The narrow desktop-column layout (420 and 640 × 1080) is at least as glanceable and space-efficient as the reference screenshot.
 - The same task workflows pass on desktop, phone, iPad-sized, and smart-frame-sized viewports.
-- Owner/editor/viewer permissions are enforced by the API and covered by tests.
-- Public responses contain only approved fields and public access is off by default.
-- Existing production data has been migrated twice successfully in rehearsal and reconciles by counts and sampled content.
-- The old dashboard remains available during the validation window.
-- Backup, rollback, session revocation, and public revocation procedures have been tested.
-- No Critical feature in this document remains incomplete.
+- Owner/editor/viewer/admin permissions (including private-task/note visibility) are enforced by the API and covered by tests.
+- The site is unconditionally `noindex`; there is **no** public output at launch (public dashboards are deferred to V2.1).
+- Existing production data has been migrated twice successfully in rehearsal and reconciles by counts and sampled content, with **no formal V1 write freeze** required (single-user coordinated pause).
+- The old dashboard remains available and unchanged as a fallback during the validation window.
+- Backup, rollback, and session-revocation procedures have been tested. (Public-revocation rehearsal moves to V2.1 with public output.)
+- No Critical launch feature in the Launch Contract remains incomplete.
 
 ## Success measures
 

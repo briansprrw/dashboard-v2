@@ -5,7 +5,7 @@
 **Implementation lead:** Claude  
 **PM/QA:** Codex  
 **Primary model:** Claude Sonnet 5, `high` effort  
-**Review model:** Claude Opus 4.8, `high` effort  
+**Review model:** Claude Sonnet 5, `high` effort +think  
 **Estimated focused time:** 7–10 days  
 **Production impact:** First isolated end-to-end Dash2 experience
 
@@ -25,8 +25,8 @@ Prove Dash2's defining experience: one responsive, high-density dashboard with S
 - Standard and Glance modes with a reliable exit path.
 - Configurable date/time header if launch-approved.
 - Responsive sheet sections and stable task-row grammar.
-- Due/status colors with redundant icon/text meaning.
-- Task create, edit, quick complete, approved archive/delete/restore, and move.
+- Seven due/status bands with redundant icon/text meaning and validated local due-threshold settings.
+- Task create, edit, quick complete, approved recycle/purge/restore, and move.
 - Approved default sorting and section visibility/order/collapse.
 - Per-device mode, scale, density, clock, collapse, and scroll behavior.
 - Background refresh, one in-flight request, backoff, stale/offline state, and visible-data retention.
@@ -52,11 +52,11 @@ Build the stable grid and due/status presentation. Test long text, missing dates
 
 ### M3.3 — Glance and responsive composition
 
-Implement density tokens, mode persistence, narrow-column and wide layouts, no-hover/touch behavior, and safe full-screen requests if approved. Mode must be independent of viewport and browser fullscreen.
+Implement density tokens, mode persistence, narrow-column and wide layouts, no-hover/touch behavior, validated local due thresholds, and local 1–3 min/max column bounds. Max is firm; min may yield only for safe readability/reflow and the fallback must be visible in M3 evidence. Mode must be independent of viewport and browser fullscreen.
 
 ### M3.4 — Core task workflows
 
-Implement create/edit/complete/move/archive/restore/delete according to M0 policy with pending, validation, conflict, denial, and failure states. Avoid optimistic state that cannot be reconciled safely.
+Implement create/edit/complete/move/recycle/restore/purge according to M0 policy with pending, validation, conflict, denial, failure, and 10-second Undo states. Avoid optimistic state that cannot be reconciled safely.
 
 ### M3.5 — Refresh and device preferences
 
@@ -68,11 +68,13 @@ Capture approved fixtures at every reference viewport. Brian evaluates informati
 
 ## Acceptance criteria
 
-- [ ] One shared workflow test creates, edits, completes, moves, archives, and restores a task across the required viewport projects.
+- [ ] One shared workflow test creates, edits, completes, moves, recycles, restores, and exercises 10-second Undo across the required viewport projects.
 - [ ] The same task/action layer powers Standard and Glance modes.
 - [ ] Status, task name, due state/TBD, priority, and approved notes/flags remain recognizable at all required widths.
 - [ ] Color is never the only status/due signal.
 - [ ] Glance mode uses the approved density at the primary narrow-column viewport and remains safely exitable.
+- [ ] Seven due bands render from ordered, bounded, non-overlapping local thresholds; invalid configurations are rejected/reset safely.
+- [ ] Automatic columns respect local min/max bounds; max never exceeds the setting, and every min-yield fallback is captured for Brian's M3 evaluation.
 - [ ] Mode, scale, density, approved collapse state, and clock preference restore per device without storing task content.
 - [ ] Refresh failure retains valid visible data, shows staleness/last success, and recovers automatically.
 - [ ] Loading, empty, validation, denied, conflict, network-error, and expired-session states are deliberate.
@@ -135,4 +137,3 @@ Brian decision: Pending
 Decision date: —
 Notes: —
 ```
-

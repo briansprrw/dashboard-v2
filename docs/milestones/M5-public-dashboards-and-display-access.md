@@ -27,7 +27,7 @@ If Brian excludes public/display access from launch, record `Deferred by product
 - Explicit profile enable/disable, selected owned sheets, and per-task/private-field eligibility.
 - Dedicated allowlist-only public DTO and serializer.
 - Exact authenticated owner preview and anonymous rendering from the same projection.
-- Default no-index behavior and approved opt-in.
+- Permanent `noindex` behavior with no opt-in or enable-indexing control.
 - Bounded cache behavior with measured revocation.
 - Rate limiting/abuse controls for anonymous routes and username probes.
 - Optional revocable read-only display session only if M0 approved it.
@@ -66,7 +66,7 @@ Use the exact public projection for owner preview and anonymous rendering. Clear
 
 ### M5.4 — Caching, revocation, indexing, and abuse
 
-Implement cache headers/invalidation strategy, no-index default, rate limits, and safe errors. Measure disable/remove/private-change propagation against the approved window.
+Implement cache headers/invalidation strategy, permanent `noindex`, rate limits, and safe errors. Measure disable/remove/private-change propagation against the approved window.
 
 ### M5.5 — Privacy attack review
 
@@ -81,7 +81,7 @@ Fresh Opus `xhigh` session probes direct IDs, guessed usernames, archived/privat
 - [ ] Disabled profiles, removed sheets, and newly private tasks stop appearing within the approved measured cache window.
 - [ ] Reserved/application paths cannot be registered as usernames; normalization and change/reuse behavior match policy.
 - [ ] Anonymous errors do not disclose whether a private account/email exists.
-- [ ] No-index is default and opt-in is explicit if supported.
+- [ ] `noindex` is unconditional across public pages/responses and no indexing opt-in exists in UI, API, or storage.
 - [ ] Rate/abuse behavior is bounded and does not leak private state.
 - [ ] Public/display pages have no mutation or management controls and pass smart-frame/no-hover tests.
 - [ ] Revocable display sessions, if implemented, are scoped read-only and demonstrably revocable.
@@ -141,4 +141,3 @@ Brian decision: Pending
 Decision date: —
 Notes: —
 ```
-

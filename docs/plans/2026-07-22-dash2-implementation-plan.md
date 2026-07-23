@@ -1,9 +1,11 @@
 # Dash2 Implementation Plan
 
 **Target:** New application at `dash2.dnky.us`  
-**Status:** Proposal; implementation begins after product priorities and open decisions are approved  
-**Date:** 2026-07-22  
-**Related documents:** [Product plan](./2026-07-22-dash2-product-plan.md) · [Technical architecture](./2026-07-22-dash2-technical-architecture.md)
+**Status:** Reconciled to approved M0 decisions (2026-07-23); implementation proceeds per the milestone gates
+**Date:** 2026-07-22 (reconciled 2026-07-23)
+**Related documents:** [Product plan](./2026-07-22-dash2-product-plan.md) · [Technical architecture](./2026-07-22-dash2-technical-architecture.md) · [Launch Contract](../milestones/M0.3-launch-contract-2026-07-23.md)
+
+> **M0 reconciliation (2026-07-23).** Approved decisions ([M0-D1..D24](../milestones/M0-approved-decisions-2026-07-23.md)) govern this plan. Applied overrides: **no V1 write freeze** (coordinated single-user pause) replaces every "write freeze / maintenance window" reference below; the migration **does not** carry V1 shares, settings, or invite codes; **public dashboards / display sessions (Phase 5) are deferred to V2.1** and are not launch scope; invite-code onboarding is out of launch scope (V2 serves only migrated users); indexing is permanently prohibited; and Admin operations do not grant private task/note/history reads. Phase↔milestone map: Phase 0→M0, 1→M1, 2→M2, 3→M3, 4→M4, 5→M5 (deferred), 6→M6, 7→M7, 8→M8, 9→M9. Acceptance IDs live in the Launch Contract.
 
 ## Delivery strategy
 
@@ -19,7 +21,7 @@ The implementation will preserve Cloudflare Workers, D1, KV, Google OAuth, and t
 4. The V1 database is read-only to migration tooling.
 5. Migration is repeatable and produces a reconciliation report.
 6. No dual-write synchronization is planned for launch.
-7. The final migration uses a short, announced write freeze or maintenance window.
+7. The final migration uses a **coordinated single-user pause, not a formal write freeze** (M0-D14): Brian is the only active V1 user, so no announced maintenance window is required.
 8. Every milestone is independently testable and leaves the existing application unaffected.
 
 ## Assumptions behind the schedule
@@ -132,12 +134,11 @@ Delete or ignore the isolated preview deployment. V1 is untouched.
 
 ### Deliverables
 
-- Users, identities, sessions, sheets, memberships, tasks, settings/preferences, invites, public profiles, and audit-event migrations.
+- Users, identities, sessions, Lists, memberships, tasks, bounded preferences, and audit-event migrations required by V2.
 - Google OAuth with expiring one-time state.
 - Secure server-side sessions with explicit local/production cookie configuration.
-- Owner/editor/viewer/admin authorization policies.
+- Owner/editor/viewer/admin authorization policies, separating Admin operations from protected-content reads: Admin cannot read private tasks, private notes, or task-history field values.
 - Runtime schemas for every implemented request and response.
-- Atomic invite reservation/redemption.
 - Services and repositories for users, sheets, memberships, and tasks.
 - API contract and authorization-matrix tests.
 
@@ -145,10 +146,10 @@ Delete or ignore the isolated preview deployment. V1 is untouched.
 
 - Deleted or disabled users lose access immediately.
 - Role changes apply without waiting for session expiration.
+- Direct Admin reads, bootstrap-shaped reads, history endpoints, errors, audit records, and recovery responses exclude private task fields, private notes, and task-history field values; authorized Admin recovery/purge still succeeds by opaque identity.
 - Viewers receive `403` for every mutation.
 - Owners cannot make a sheet ownerless or remove their own required membership.
 - Invalid enum, date, length, identifier, and request shapes receive consistent `400` responses.
-- An exhausted or canceled invite cannot provision a user under concurrent attempts.
 
 ### Rollback
 
@@ -171,7 +172,7 @@ Redeploy the prior Dash2 Worker version. Restore the isolated staging D1 databas
 - Large configurable date/time header.
 - Responsive sheet sections and task rows.
 - Due-state colors, status icons, note marker, short date/TBD, and priority icon.
-- Task create, edit, quick complete, archive/delete, and move workflows.
+- Task create, edit, quick complete, recycle/purge, and move workflows.
 - Sheet ordering, visibility, collapse state, scale, and density preferences.
 - Background refresh with stale/offline indication.
 - Keyboard, pointer, and touch support from shared components/actions.
@@ -190,7 +191,7 @@ The narrow desktop-column view must be reviewed against the supplied screenshot 
 
 ### Functional acceptance criteria
 
-- The same browser test performs create/edit/complete/move/archive on every supported viewport project.
+- The same browser test performs create/edit/complete/move/recycle on every supported viewport project.
 - Changing a task once updates every presentation mode.
 - Refresh failure never replaces valid visible data with a blank screen.
 - Glance mode is restored per device and can be exited without clearing user preferences.
@@ -210,10 +211,10 @@ Keep the prior preview deployment available. No production users have been moved
 
 ### Deliverables
 
-- Create, rename, archive, restore, and transfer sheet ownership.
+- Create, rename, recycle, restore, and transfer List ownership.
 - Add/revoke viewer and editor memberships.
 - Curated settings and per-device display profiles.
-- User, role, sheet-recovery, and invite administration.
+- User, role, and List-recovery administration.
 - Audit events for administrative and access-sensitive actions.
 - Clear destructive-action confirmations and recovery paths.
 
@@ -221,15 +222,17 @@ Keep the prior preview deployment available. No production users have been moved
 
 - Every management action is authorized on the server and audited when required.
 - Deleting/deactivating a user cannot orphan a sheet.
-- Archived tasks and sheets can be recovered within the approved retention window.
+- Recycled tasks and Lists can be recovered within the approved retention window.
 - Device-specific display choices do not overwrite global user task preferences.
 - Admin management works on desktop and tablet; phone support meets the approved product priority.
 
-## Phase 5 — Public dashboards and display sessions
+## Phase 5 — Public dashboards and display sessions — **DEFERRED (V2.1, M0-D7)**
+
+> **Not launch scope.** Public dashboards, public usernames, public projection/preview, and dedicated read-only display sessions are deferred to V2.1. Search-engine indexing is permanently prohibited rather than deferred: the site and any future public output remain unconditionally `noindex`, with no enable-indexing control or schema field. The architecture keeps allowlist-projection and public-profile seams so this phase can be built later without reshaping storage. The content below is retained as the V2.1 design target, not a launch deliverable.
 
 **Estimate:** 4–7 days  
-**Dependency:** Public features must be approved as launch scope  
-**Deployment impact:** Anonymous read surface becomes available in staging
+**Dependency:** Deferred to V2.1; requires a future explicit launch-scope decision
+**Deployment impact:** None at V2 launch (anonymous read surface only appears when V2.1 public features are approved)
 
 ### Objectives
 
@@ -242,7 +245,7 @@ Keep the prior preview deployment available. No production users have been moved
 - Selection of owned sheets for public inclusion.
 - Versioned public response DTO.
 - Anonymous public dashboard and authenticated exact preview.
-- No-index default and bounded cache/revocation behavior.
+- Permanent `noindex` enforcement with no opt-in, plus bounded cache/revocation behavior.
 - Optional revocable, read-only display session if approved.
 
 ### Acceptance criteria
@@ -272,10 +275,10 @@ The migration converts V1 concepts into V2 concepts. It does not copy tables dir
 |---|---|---|
 | `allowed_users` | `users`, `identities`, and roles | Normalize email; create stable new user ID; validate role; retain legacy email as identity. |
 | `sheets` | `sheets` | Create new stable ID; preserve display name; map owner email to user ID; retain old slug in `legacy_source_id`. |
-| `access_control` | `sheet_memberships` | Owner rows become owner; other `can_see=1` rows become the approved migration role, proposed editor. |
+| `access_control` | **Not migrated (M0-D3/D13)** | V1 sharing rows are **not** carried forward. Only owner→`owner_user_id` is derived (from `sheets`/ownership, not from shares). Users deliberately re-share in V2; new shares default to Viewer. |
 | `tasks` | `tasks` | Create new stable ID; map sheet slug to sheet ID; normalize status/priority/date; preserve ordering and timestamps when valid. |
-| `settings` | `user_preferences` or discard report | Import only approved keys; parse and validate types; report dropped or invalid values. |
-| `invite_codes` | `invites` and redemption records | Import active codes only if approved; validate counts; otherwise archive in migration report. |
+| `settings` | **Not migrated (M0-D13)** | V1 settings/preferences are not imported; each user re-establishes per-device display preferences in V2. Report counts only in the reconciliation report. |
+| `invite_codes` | **Not migrated (M0-D13)** | Invite codes are not imported; V2 has no invite-code onboarding at launch (serves only migrated users). Record counts in the migration report. |
 | `app_config` | Environment/config defaults | Do not import unused legacy configuration. |
 
 ### Migration tooling
@@ -337,11 +340,11 @@ The migration command must:
 | Input | Mouse, keyboard-only, touch, and no-hover behavior. |
 | Motion/contrast | Reduced motion, high zoom, contrast, and color-independent state checks. |
 | Roles | Anonymous, viewer, editor, owner, admin, disabled user. |
-| Data | Empty, typical, long names, many sheets/tasks, invalid legacy values, archived content. |
+| Data | Empty, typical, long names, many Lists/tasks, invalid legacy values, recycled content. |
 
 ### Hardening work
 
-- Threat review for OAuth, sessions, invitations, public routes, and destructive actions.
+- Threat review for OAuth, sessions, Admin boundaries, and destructive actions.
 - Content Security Policy rollout with no inline event handlers or unsafe dynamic markup.
 - Accessibility audit and keyboard/focus correction.
 - Query/index review using production-shaped data.
@@ -366,16 +369,16 @@ The migration command must:
 
 ### Launch procedure
 
-1. Announce the V1 write-freeze/maintenance window.
+1. Coordinate a single-user pause of V1 use (no formal write freeze/maintenance window is required — M0-D14).
 2. Verify a recent D1 recovery point and take an independent export.
-3. Put V1 mutations into maintenance mode while retaining a read-only status page if practical.
-4. Export V1 data.
+3. Pause V1 mutation activity by agreement (Brian is the only active user); no maintenance-mode page is required.
+4. Export V1 data (read-only).
 5. Run the approved migration into a fresh or cleared Dash2 production database.
 6. Run automated reconciliation and invariant checks.
-7. Complete a short manual validation with owner, shared-user, admin, and public-preview accounts.
+7. Complete a short manual validation with owner, admin, and disabled-user accounts; validate deliberately created V2 viewer/editor memberships if present.
 8. Enable `dash2.dnky.us` for approved users.
 9. Keep V1 data unchanged and available as a fallback during the validation period.
-10. Monitor login, API errors, D1 errors, migration discrepancies, and public-route behavior.
+10. Monitor login, API errors, D1 errors, and migration discrepancies.
 
 ### Rollback criteria
 
@@ -389,7 +392,7 @@ Return users to V1 if any of the following occur and cannot be corrected safely 
 
 ### Rollback procedure
 
-1. Disable Dash2 mutations and public routes.
+1. Disable Dash2 mutations.
 2. Direct users back to V1.
 3. Preserve the Dash2 database for diagnosis; do not merge Dash2 writes into V1 ad hoc.
 4. Rehearse a corrected migration using a fresh Dash2 database.
@@ -433,8 +436,8 @@ The simplest safe launch avoids meaningful parallel writes. If users create task
 - OAuth/state/session lifecycle.
 - Users and account states.
 - Sheet membership policy.
-- Invitations.
 - Authorization test matrix.
+- (Invitations deferred to V2.1 — no launch onboarding)
 
 ### Epic 4 — Tasks and sheets
 
@@ -455,10 +458,10 @@ The simplest safe launch avoids meaningful parallel writes. If users create task
 ### Epic 6 — Sharing and administration
 
 - Owner sharing workflow.
-- Admin user/sheet/invite workflows.
+- Admin user/List recovery workflows.
 - Recovery and audit log.
 
-### Epic 7 — Public dashboards
+### Epic 7 — Public dashboards (V2.1 — out of scope for V2)
 
 - Username policy.
 - Public configuration and DTO.
@@ -503,4 +506,3 @@ The simplest safe launch avoids meaningful parallel writes. If users create task
 ## First action after approval
 
 Do not begin by writing application code. First resolve the `TBD` product policies, apply feature ratings, and produce a clickable or coded Glance-mode prototype at the narrow reference viewport. That prototype is the quickest way to verify that the new architecture is serving the actual product rather than merely modernizing its appearance.
-

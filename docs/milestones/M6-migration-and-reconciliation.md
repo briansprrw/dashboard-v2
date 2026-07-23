@@ -4,14 +4,14 @@
 **Owner:** Brian  
 **Implementation lead:** Claude  
 **PM/QA:** Codex  
-**Primary model:** Claude Fable 5, `high`, for full rehearsals; Claude Opus 4.8, `xhigh`, otherwise  
+**Primary model:** Claude Sonnet 5, `high` effort +think (Claude Fable 5, `high`, only as a fallback if a specific rehearsal genuinely needs a long autonomous session)  
 **Review model:** Independent Claude Opus 4.8, `xhigh`  
-**Estimated focused time:** 5–8 days, with read-only profiling allowed earlier  
+**Estimated focused time:** 5–8 days; any V1 profiling requires separate authorization during M6
 **Production impact:** Staging imports only; production source remains unchanged
 
 ## Outcome
 
-Build and prove a repeatable, auditable V1-to-Dash2 migration that accounts for every source record, preserves approved data and permissions, quarantines anomalies, exposes no private content in logs/reports, and produces identical logical results across clean runs.
+Build and prove a repeatable, auditable V1-to-Dash2 migration that accounts for every source record, preserves only approved data and ownership, records intentional omissions, quarantines anomalies, exposes no private content in logs/reports, and produces identical logical results across clean runs.
 
 ## Prerequisites
 
@@ -22,10 +22,11 @@ Build and prove a repeatable, auditable V1-to-Dash2 migration that accounts for 
 
 ## In scope
 
-- Read-only V1 source profiling.
+- If Brian separately authorizes it during M6, create a fresh aggregate-only V1 source profile using approved read-only access. M0 establishes no live-source profile.
 - Deterministic extraction, validation, transformation, loading, and reconciliation.
 - V1-to-Dash2 ID mappings and optional internal legacy reconciliation IDs.
-- Approved mapping of users/identities, sheets/owners, memberships, tasks, settings, invites, flags, ordering, and timestamps.
+- Approved mapping of users/identities, Lists/owners, tasks, flags, ordering, and timestamps.
+- Explicit count-only dispositions for V1 sharing/access-control rows, settings, and invite codes, which are not migrated.
 - Dry run, idempotent batch behavior, anomaly quarantine, dropped/transformed report, and redacted logs.
 - Synthetic, sanitized-shape, and current staging rehearsals.
 - Two consecutive clean rehearsals with no unexplained discrepancy.
@@ -57,7 +58,7 @@ Every source row receives one disposition: imported unchanged, imported transfor
 
 ### M6.1 — Source profile and mapping specification
 
-Profile tables, counts, nulls, ranges, duplicates, orphans, enum/date variants, ownership/access contradictions, setting keys, and invite states. Update the mapping table with approved decisions; use aggregates and synthetic examples.
+Only if Brian separately authorizes V1 access during M6, create a fresh aggregate-only source profile with approved read-only controls. Profile tables, counts, nulls, ranges, duplicates, orphans, enum/date variants, ownership contradictions, setting-key counts, and invite-state counts. Update the mapping table with approved decisions; use aggregates and synthetic examples, never real values. Do not treat M0 as containing a source profile.
 
 ### M6.2 — Deterministic migration tool
 
@@ -65,7 +66,7 @@ Implement dry-run and load modes, source fingerprint/batch ID, deterministic map
 
 ### M6.3 — Reconciliation and invariants
 
-Report totals by role/state, owner, membership, sheet, task status/priority/open state, settings disposition, invalid dates, orphans, duplicates, and quarantine. Check foreign keys, exactly-one-owner, valid enums, and public/private eligibility.
+Report totals by role/state, owner, List, task status/priority/open state, omitted access-control/settings/invite rows, invalid dates, orphans, duplicates, and quarantine. Check foreign keys, exactly-one-owner, valid enums, and protected-content eligibility.
 
 ### M6.4 — Rehearsals
 
@@ -85,12 +86,13 @@ For a full current-data rehearsal spanning a long autonomous session, Fable 5 `h
 - [ ] The same source fingerprint produces deterministic mappings and logical output.
 - [ ] Re-running a batch cannot silently duplicate records.
 - [ ] Every source row is accounted for by a disposition and reason.
-- [ ] No destination sheet is ownerless and no task/membership references a missing entity.
-- [ ] Approved names, notes, dates, statuses, priorities, flags, ordering, timestamps, settings, and permissions reconcile.
+- [ ] No destination List is ownerless and no task references a missing entity.
+- [ ] Approved users/roles, List ownership, names, notes, dates, statuses, priorities, flags, ordering, and timestamps reconcile.
+- [ ] V1 sharing/access-control, settings, and invite-code rows are not imported and are fully accounted for by redacted counts.
 - [ ] Invalid rows are quarantined/reported; values are not silently invented.
 - [ ] Reports/logs/source control contain no private content, exports, or secrets.
 - [ ] Two consecutive clean current-shape staging rehearsals have identical logical results and no unexplained discrepancy.
-- [ ] Selected users validate representative counts, access, and sampled content in staging.
+- [ ] The active user validates representative counts, ownership, and sampled content in staging; historical test users are validated only as applicable to their migrated account state.
 - [ ] M8 receives a measured migration duration, commands, preconditions, stop conditions, and rollback inputs.
 - [ ] Independent Opus review has no unresolved P0/P1.
 
@@ -106,7 +108,7 @@ For a full current-data rehearsal spanning a long autonomous session, Fable 5 `h
 
 ## QA approach
 
-Codex injects duplicates, orphan references, invalid dates/enums, missing owners, case variants, conflicting access, empty notes, very long values, canceled/exhausted invites, and dropped settings. QA compares source aggregates to target aggregates and verifies sampled private values only in the authorized environment, never copied to review docs.
+Codex injects duplicates, orphan references, invalid dates/enums, missing owners, case variants, conflicting legacy access, empty notes, very long values, canceled/exhausted legacy invites, and dropped settings. QA compares source aggregates to target aggregates, confirms excluded categories remain excluded, and verifies sampled private values only in the authorized environment, never copied to review docs.
 
 Any source mutation, unexplained missing record, owner/access escalation, private-content leak, or nondeterministic logical result is P0/P1 and blocks launch.
 
@@ -149,4 +151,3 @@ Brian decision: Pending
 Decision date: —
 Notes: —
 ```
-

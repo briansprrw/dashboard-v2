@@ -1,6 +1,9 @@
 # Private planning material — not for the public repo
 docs/audits/
 
+# Local cross-agent milestone handoffs
+.handoffs/
+
 # Environment / secrets
 .env
 .env.*

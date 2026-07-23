@@ -4,8 +4,8 @@
 **Owner:** Brian  
 **Implementation lead:** Claude  
 **PM/QA:** Codex  
-**Primary model:** Claude Opus 4.8, `xhigh` effort  
-**Review model:** Codex plus targeted human/device QA  
+**Primary model:** Claude Sonnet 5, `high` effort +think  
+**Review model:** Claude Sonnet 5, `high` effort +think, plus Codex and targeted human/device QA  
 **Estimated focused time:** 4–6 days  
 **Production impact:** Production resources may be prepared; no user cutover
 
@@ -23,17 +23,18 @@ Demonstrate that the approved Dash2 launch slice is secure, accessible, observab
 
 - Full automated test suite and launch regression pack.
 - Browser/device/input/role/data matrix.
-- OAuth/session/invite/public/destructive-action threat review.
+- OAuth/session/admin/destructive-action threat review.
 - CSP and approved security headers without unsafe inline dependencies.
 - Accessibility audit and manual keyboard/focus/zoom/reduced-motion/color checks.
 - Query/index/response-size/render performance with production-shaped data.
 - Structured logs, redaction, health/version/schema checks, and operational signals.
-- D1 recovery/export verification, Worker rollback, public shutdown, account disablement, and migration-failure runbooks.
+- D1 recovery/export verification, Worker rollback, account disablement, and migration-failure runbooks.
 - Staging DNS/OAuth/cookie/route checks and production configuration preflight without cutover.
 
 ## Out of scope
 
 - New features, optional polish, dependency churn unrelated to a blocker, production migration, DNS cutover, or V1 freeze.
+- Invite and public-dashboard threat surfaces, routes, and shutdown controls (V2.1).
 
 ## Required matrix
 
@@ -44,7 +45,8 @@ Demonstrate that the approved Dash2 launch slice is secure, accessible, observab
 | Input | Mouse, keyboard-only, touch, no-hover |
 | Accessibility | 200% zoom/reflow, reduced motion, contrast, focus, screen-reader semantics sample |
 | Roles | Anonymous, viewer, editor, owner, admin, disabled/removed user |
-| Data | Empty, typical, dense, long text, many sheets/tasks, archived/private, invalid migrated values |
+| Protected content | Private task, private note, task-history fields, opaque Admin recovery response |
+| Data | Empty, typical, dense, long text, many Lists/tasks, recycled/private, invalid migrated values |
 | Network | Fast, slow, offline/stale, API errors, expired session |
 
 ## Work packets
@@ -55,7 +57,7 @@ Run the frozen test matrix, record environment/build/fixture, and distinguish au
 
 ### M7.2 — Security/privacy hardening
 
-Threat-model auth/session/invite/public/admin/destructive paths; inspect headers, cache, DOM/network/logs, input bounds, origin behavior, enumeration, direct-object access, and dependency advisories. Findings require reproduction and regression evidence.
+Threat-model auth/session/admin/destructive paths; inspect headers, cache, DOM/network/logs, input bounds, origin behavior, enumeration, direct-object access, and dependency advisories. Findings require reproduction and regression evidence.
 
 ### M7.3 — Accessibility and performance
 
@@ -63,7 +65,7 @@ Correct P0/P1 accessibility failures. Measure first useful render, warm refresh,
 
 ### M7.4 — Operations and recovery
 
-Exercise health/version/schema mismatch, alert/log queries, session/account shutdown, public-route disablement, Worker rollback, D1 recovery/export, and failed-migration containment in staging.
+Exercise health/version/schema mismatch, alert/log queries, session/account shutdown, Worker rollback, D1 recovery/export, and failed-migration containment in staging.
 
 ### M7.5 — Launch-candidate review
 
@@ -74,12 +76,12 @@ Produce a known-issue list, P2/P3 dispositions, configuration diff, signed evide
 - [ ] All required build, lint, type, unit, integration, contract, browser, migration, and visual tests pass on the release candidate.
 - [ ] Required matrix cells are executed or have a Brian-approved exception with residual risk.
 - [ ] No unresolved P0/P1 defect exists.
-- [ ] Authorization/public/privacy regression packs pass.
+- [ ] Authorization/privacy regression packs pass.
 - [ ] Accessibility has no launch-blocking keyboard, focus, reflow, contrast, motion, name/role/value, or screen-reader defect.
 - [ ] Performance budgets are met or deviations are explicitly accepted with measurements.
 - [ ] Logs, errors, analytics, and evidence remain redacted.
 - [ ] D1 recovery/export and Worker rollback are each rehearsed; their different scopes are documented.
-- [ ] Public shutdown, user disablement, schema mismatch, and failed migration runbooks work in staging.
+- [ ] User disablement, schema mismatch, and failed migration runbooks work in staging.
 - [ ] Production resource identifiers, OAuth callback, cookies, DNS plan, headers, monitoring, and expected schema are preflighted without cutover.
 - [ ] Known issues and rollback triggers are explicit.
 - [ ] Brian records Gate F launch-readiness approval.
@@ -90,7 +92,7 @@ Produce a known-issue list, P2/P3 dispositions, configuration diff, signed evide
 - Security/privacy findings with regression tests.
 - Accessibility report and manual notes.
 - Performance measurements and query plans.
-- Recovery/rollback/public-disable/account-disable rehearsal records.
+- Recovery/rollback/account-disable rehearsal records.
 - Production configuration preflight with secrets redacted.
 - Known-issue list and go/no-go recommendation.
 
@@ -139,4 +141,3 @@ Brian decision: Pending
 Decision date: —
 Notes: —
 ```
-
