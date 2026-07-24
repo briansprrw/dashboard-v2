@@ -1,84 +1,205 @@
 # Dash2 Milestone Command Runbook
 
-This is the shared execution protocol for Claude and Codex. The root `CLAUDE.md` and `AGENTS.md` files route milestone commands here.
+This is the shared milestone command protocol for Claude and Codex. The root `CLAUDE.md` and `AGENTS.md` files route milestone commands here.
 
-No prompt copying or milestone-variable editing is required. Start a fresh task in the appropriate tool and use one of these commands:
+For Claude, the installed milestone skills implement the repeatable execution procedures. This runbook defines command grammar, role ownership, project routing, required outcomes, and the Codex review procedures.
+
+For Codex, this runbook remains the complete procedure for Readiness, QA, and Re-review unless equivalent Codex skills are installed and explicitly routed by `AGENTS.md`.
+
+No prompt copying or milestone-variable editing is required. Start a fresh task in the appropriate tool and use commands such as:
 
 ```text
-Run M0 Readiness
-Run M1 Implementation
-Run M1 QA
-Run M1 Re-review
+M0 Readiness
+M1 Implementation
+M1 QA
+M1 Re-review
 ```
 
-Natural variants are accepted, including:
+Natural variants are accepted:
 
 ```text
 Run the M0 Readiness checks
 Run M1 Implementation
+Implement M1
 Review M1 for QA
 Re-review M1 after Claude's fixes
 ```
 
+## Authority and precedence
+
+This runbook does not override:
+
+1. Brian's latest explicit instruction.
+2. Recorded decisions in the active milestone.
+3. Approved product and architecture decisions.
+4. The active milestone document.
+5. Canonical plans referenced by the milestone.
+6. The applicable root instruction file.
+7. This runbook.
+
+A skill invocation does not grant broader authority than the repository instructions and active milestone allow.
+
+Brian is the product owner and the only final milestone approver. Neither Claude nor Codex may:
+
+- Mark a milestone `Accepted`.
+- Approve its own implementation.
+- Begin a dependent milestone without authorization.
+- Infer permission to commit, push, open or merge a pull request, deploy, migrate, change production, or perform a destructive action.
+- Treat a proposal, unchecked plan item, mockup, agent summary, passing test, or existing code as product approval.
+
 ## Command grammar
 
+The primary milestone command grammar is:
+
 ```text
-Run <milestone ID> <stage>
+<Milestone ID> <Stage>
 ```
 
-- **Milestone ID:** `M0` through the highest milestone defined in `docs/milestones/README.md`.
-- **Stage:** `Readiness`, `Implementation`, `QA`, or `Re-review`.
-- `Readiness checks`, `PM review`, and `plan review` map to **Readiness**.
-- `Implement` and `execution` map to **Implementation**.
-- `review`, `gate review`, and `independent review` map to **QA**.
-- `remediation review` maps to **Re-review**.
+`Run` is optional.
 
-If the command does not identify exactly one milestone and stage, ask for the missing value. Do not infer a different milestone from recent work.
+### Milestone ID
+
+Use `M0` through the highest milestone defined in `docs/milestones/README.md`.
+
+Resolve the milestone from the current command. Never infer a different milestone from recent conversation or the currently active worktree.
+
+### Primary stages
+
+| Canonical stage | Accepted variants | Owner |
+| --- | --- | --- |
+| `Readiness` | readiness checks, PM review, plan review | Codex |
+| `Implementation` | implement, execution, continue implementation | Claude |
+| `QA` | review, gate review, independent review | Codex |
+| `Re-review` | remediation review, review after fixes | Codex |
+
+### Claude operational commands
+
+These are not independent milestone gates:
+
+| Command | Purpose | Required Claude skill |
+| --- | --- | --- |
+| `M# Verification` | Claude self-verification of implementation evidence | `verify-implementation` |
+| `Address M# review findings <IDs>` | Correct selected Codex findings | `address-review` |
+| `M# Decision: <topic>` | Prepare a blocked decision brief | `decision-brief` |
+| `Commit M#` | Create one authorized local commit | Direct `/commit-milestone M#` invocation |
+| A production or external mutation request | Establish a separate safety gate | `production-mutation-gate` |
+
+If a command does not identify exactly one milestone and stage or operation, ask only for the missing value. Do not infer it from conversational recency.
 
 ## Stage ownership
 
-| Stage | Primary tool/role | Purpose | Maximum result |
-|---|---|---|---|
-| Readiness | Codex as analyst/PM | Decide whether a milestone or next packet is ready | Readiness recommendation |
-| Implementation | Claude as implementation lead | Complete the next approved work packet | `Ready for PM/QA` |
-| QA | Codex as independent reviewer | Review actual implementation and evidence | Gate recommendation |
-| Re-review | Codex as independent reviewer | Verify remediation of prior findings | Updated gate recommendation |
+| Stage or operation | Primary role | Maximum result |
+| --- | --- | --- |
+| Readiness | Codex as analyst and PM | Readiness recommendation |
+| Implementation | Claude as implementation lead | `Ready for PM/QA`, `Partial`, or `Blocked` |
+| Verification | Claude self-check | Verification result, not QA approval |
+| Correction | Claude implementation lead | `Ready for re-review`, `Partial`, or `Blocked` |
+| QA | Codex as independent reviewer | Gate recommendation |
+| Re-review | Codex as independent reviewer | Updated gate recommendation |
+| Decision brief | Claude or Codex, read-only | Decision request for Brian |
+| Commit | Claude after explicit command | One local commit |
+| Production mutation gate | Claude, gate only | Authorization status for one exact action |
 
-Brian is the product owner and only final milestone approver. Neither tool may mark a milestone `Accepted`, approve its own implementation, begin a dependent milestone, or authorize production/destructive actions.
+If Claude receives Readiness, QA, or Re-review, it must identify that the independent stage belongs to Codex and stop unless Brian explicitly changes the role assignment.
 
-If Claude receives a Readiness, QA, or Re-review command, it must identify that the independent stage belongs to Codex and stop unless Brian explicitly changes the role assignment. If Codex receives an Implementation command, it must identify that implementation belongs to Claude and stop unless Brian explicitly assigns Codex to implement.
+If Codex receives Implementation, Correction, Verification, Commit, or a production mutation request, it must identify that the action belongs to Claude and stop unless Brian explicitly changes the role assignment.
 
-## Shared command startup
+## Claude skill routing
 
-Every stage begins with the following sequence:
+Claude must use the installed skills for Claude-owned milestone procedures. It must not imitate or manually recreate a skill workflow when the required skill is available.
+
+### Natural-language routing
+
+| Brian's request | Claude action |
+| --- | --- |
+| `M# Implementation`, `Run M# Implementation`, `Implement M#`, or equivalent | Invoke `milestone-implement` with the milestone ID and any stated packet or scope. |
+| `Continue M# Implementation` | Invoke `milestone-implement` with the milestone ID. The skill resolves the next approved packet independently. |
+| `M# Verification`, `Verify M# Implementation`, or equivalent | Invoke `verify-implementation` with the milestone ID and any stated scope. |
+| `Address M# review findings P1-01 P2-03` | Invoke `address-review` with the milestone ID and the exact finding IDs. |
+| `Address all M# review findings` | Invoke `address-review` with `all` only because Brian explicitly said all. |
+| A material unresolved decision blocks work | Invoke `decision-brief` with the milestone ID and decision ID or topic. |
+| A deployment, migration, destructive action, DNS or OAuth change, production configuration change, or other external mutation | Invoke `production-mutation-gate` with the exact action and non-secret target. |
+| `Commit M#` | Instruct Brian to invoke `/commit-milestone M#` directly. Do not substitute ordinary Git commands. |
+
+If a required skill is missing, unavailable to model invocation, denied by permissions, or fails to load, Claude must stop as `Blocked` and name the missing capability. It must not fall back to an abbreviated improvised procedure.
+
+### Workflow and foundation skills
+
+The workflow skills compose these reusable foundation skills:
+
+- `milestone-session-bootstrap`
+- `decision-gate-audit`
+- `implementation-work-packet`
+- `verification-evidence`
+- `durable-handoff`
+- `defect-triage`
+- `controlled-git-delivery`
+- `production-mutation-gate`
+
+The workflow skills are:
+
+- `milestone-implement`
+- `address-review`
+- `verify-implementation`
+- `decision-brief`
+- `commit-milestone`
+
+Foundation skills do not independently grant implementation, Git, production, destructive-action, acceptance, or expanded-scope authority.
+
+## Shared project startup requirements
+
+Every milestone stage must establish the following project context. Claude performs this through `milestone-session-bootstrap`; Codex performs it directly under this runbook.
 
 1. Read the applicable root instruction file: `CLAUDE.md` for Claude or `AGENTS.md` for Codex.
-2. Read `docs/milestones/README.md` in full.
-3. Resolve the command's milestone ID to the single file under `docs/milestones/` whose filename begins with that ID, then read it in full.
-4. Read the canonical product, architecture, and implementation-plan sections linked by that milestone. Read relevant audits or mockups only when they affect the active stage.
-5. Run `git status --short` and identify pre-existing changes that must be preserved.
-6. Inspect the milestone status, prerequisites, Decision Log, Risk Log, Evidence Index, scope, work packets, acceptance criteria, model/effort routing, rollback, and approval gate.
-7. State the resolved milestone file, stage, role, current status, and worktree condition before continuing.
+2. Read this runbook.
+3. Read `docs/milestones/README.md` in full.
+4. Resolve the current command to exactly one milestone file under `docs/milestones/`, then read it in full.
+5. Read the canonical product, architecture, implementation, audit, or mockup sections linked by that milestone when they affect the requested stage.
+6. Read `.handoffs/M#-handoff.md` when present.
+7. Run `git status --short` and identify pre-existing or unrelated changes that must be preserved.
+8. Inspect the milestone status, prerequisites, Decision Log, Risk Log, Evidence Index, scope, work packets, acceptance criteria, model and effort routing, rollback expectations, and approval gate.
+9. State the resolved milestone, stage, role, current status, handoff condition, and worktree condition before continuing.
 
-Facts, proposals, inferences, and approvals must remain distinct. An unchecked plan item, mockup, agent summary, existing implementation, or passing test is not Brian's approval.
+Facts, inferences, proposals, approvals, and evidence must remain distinct.
 
-## Stage 1 — Readiness
+## Durable handoff requirement
 
-### Trigger examples
+Every Claude Implementation, Correction, and Verification stage and every Codex Readiness, QA, and Re-review stage must read and update:
 
 ```text
-Run M0 Readiness
+.handoffs/M#-handoff.md
+```
+
+The `.handoffs/` directory is intentionally gitignored unless the repository explicitly states otherwise.
+
+Rules:
+
+- Preserve sections written by the other agent and prior stages.
+- Add a clearly labeled section for the current stage and review pass.
+- Do not place secrets, credentials, cookies, OAuth material, private task names or notes, raw production records, or prohibited private content in the handoff.
+- A stage is not complete until its handoff section is written.
+- If the handoff cannot be written, report the stage as `Blocked` or `Partial`.
+- The checked-in milestone remains authoritative for decisions, risks, status, acceptance criteria, and final approval.
+
+Claude performs this through `durable-handoff`. Codex follows the handoff requirements in `AGENTS.md` and this runbook.
+
+# Stage 1: Readiness
+
+## Trigger examples
+
+```text
+M0 Readiness
 Run the M0 Readiness checks
 Run M3 PM review
 ```
 
-### Role and mode
+## Role and mode
 
-Codex acts as an independent analyst/PM. This stage is read-only unless Brian explicitly requests planning-document updates after the findings are delivered. Do not implement application code or fix findings during the review.
+Codex acts as an independent analyst and PM. This stage is read-only except for the required local handoff update. Do not implement application code, correct findings, commit, push, deploy, or mutate external systems.
 
-Use High reasoning for routine scope/readiness checks and Extra High for architecture, authorization, privacy, migration, recovery, hardening, or launch readiness.
+Use High reasoning for routine scope and readiness checks. Use Extra High for architecture, authorization, privacy, migration, recovery, hardening, or launch readiness.
 
-### Review requirements
+## Review requirements
 
 After shared startup, verify:
 
@@ -86,28 +207,28 @@ After shared startup, verify:
 - Blocking product, architecture, permission, privacy, lifecycle, migration, production, and terminology decisions are explicit.
 - In-scope and out-of-scope boundaries agree across the milestone and canonical plans.
 - Each committed deliverable maps to observable acceptance criteria and required evidence.
-- Failure, denial, boundary, accessibility, security/privacy, migration, recovery, and rollback expectations are present where relevant.
+- Failure, denial, boundary, accessibility, security and privacy, migration, recovery, and rollback expectations are present where relevant.
 - The next work packet is small enough for independent review and does not silently cross milestones.
-- The recommended Claude model/effort matches the risk; any fallback risk is explicit.
+- The recommended Claude model and effort match the risk, with fallback risk made explicit.
 - Required environments, fixtures, credentials, devices, and external dependencies are identified without embedding secrets or private content.
 - Pre-existing worktree changes can be preserved and will not make the packet unsafe to review.
 
-Classify findings with the repository's P0–P3 definitions. Findings must be consequential and evidence-backed. Do not report formatting preferences, implausible hypotheticals, or deterministic lint issues better left to CI.
+Classify actionable findings using the repository's P0 through P3 definitions. Findings must be consequential and evidence-backed. Do not report formatting preferences, implausible hypotheticals, or deterministic lint issues better enforced by CI.
 
 For each blocking decision, use:
 
 ```text
 Decision ID and title:
 Why it is needed now:
-Constraints/evidence:
-Option A — consequences:
-Option B — consequences:
+Constraints and evidence:
+Option A and consequences:
+Option B and consequences:
 Recommendation:
-Default if deferred (only when safe):
+Default if deferred, only when safe:
 Decision owner:
 ```
 
-### Required output
+## Required output
 
 ```text
 Readiness verdict: READY | NOT READY | READY WITH RECORDED CONDITIONS
@@ -115,171 +236,254 @@ Milestone resolved:
 Current milestone status:
 Codex reasoning level used:
 
-Findings (P0 → P3):
-- [Severity] Title — evidence, impact, and required correction or decision.
+Findings, P0 through P3:
+- [Severity] Title, evidence, impact, and required correction or decision.
 
 Prerequisite and decision audit:
 - Satisfied:
-- Missing/ambiguous:
+- Missing or ambiguous:
 
 Scope and traceability audit:
-- Deliverable → acceptance criterion/evidence gaps:
+- Deliverable to acceptance criterion or evidence gaps:
 - Scope conflicts or likely creep:
 
 Recommended next work packet:
 Outcome:
 In scope:
 Out of scope:
-Dependencies/decisions:
-Claude model/effort required:
+Dependencies and decisions:
+Claude model and effort required:
 Independent verification required:
 
 Decision briefs:
 - Include only when blocked.
 
+Handoff updated:
 Next action for Brian:
 Next action for Claude:
 ```
 
-If there are no substantive findings, say so explicitly. Do not manufacture findings.
+If there are no substantive findings, state `No actionable findings.` Do not manufacture findings.
 
-## Stage 2 — Implementation
+# Stage 2: Implementation
 
-### Trigger examples
+## Trigger examples
 
 ```text
+M1 Implementation
 Run M1 Implementation
-Run M3 Implement
-Run M4 execution
+Implement M3
+Continue M4 Implementation
 ```
 
-### Role and mode
+## Required Claude routing
 
-Claude acts as implementation lead. It may execute only the next incomplete, approved work packet in the target milestone unless Brian explicitly approves a larger batch.
-
-Claude must use the model and effort specified by the milestone. If the current model/effort is insufficient, stop before implementation and provide the exact `/model` and `/effort` commands. Do not silently downgrade.
-
-### Readiness gate
-
-After shared startup, confirm:
-
-- The milestone is `Accepted` at every prerequisite gate and is ready to enter or continue.
-- No required decision or input is unresolved.
-- The next incomplete work packet is unambiguous.
-- The worktree permits a narrow, reviewable diff while preserving pre-existing changes.
-
-If any material product, architecture, authorization, privacy, destructive-lifecycle, migration, or production decision is unresolved, do not guess. Prepare the decision brief defined in the Readiness stage, record/retain the appropriate blocked status, and wait.
-
-### Work-packet contract
-
-Before editing, print:
+Claude must invoke:
 
 ```text
-Milestone: [resolved ID and name]
-Work packet: [ID and name]
-Outcome: [observable result]
-In scope: [behavior and likely files]
-Out of scope: [adjacent work excluded]
-Dependencies/decisions: [IDs or none]
-Model/effort: [active model and level]
-Verification: [exact automated and manual evidence]
+milestone-implement <milestone ID> [optional packet or scope]
 ```
 
-Then investigate, implement, and verify that packet under these rules:
+The skill owns the repeatable Implementation procedure and must compose:
 
-- Read before editing and follow approved architecture and repository conventions.
-- Keep the diff narrow; do not add parity, refactors, upgrades, or features outside the packet.
+1. `milestone-session-bootstrap`
+2. `decision-gate-audit`
+3. `implementation-work-packet`
+4. `verification-evidence`
+5. `defect-triage` when needed
+6. `durable-handoff`
+
+The active milestone and repository instructions remain authoritative.
+
+## Authorization boundary
+
+An Implementation command authorizes only the next incomplete, approved work packet unless Brian explicitly names a different approved packet or a larger authorized packet range.
+
+It does not authorize:
+
+- Another packet or milestone.
+- Product, architecture, schema, authorization, privacy, migration, or launch decisions.
+- Commit, push, pull request creation, merge, deployment, migration execution, production changes, destructive actions, or milestone acceptance.
+
+## Required result
+
+The skill must:
+
+- Resolve the exact milestone and packet from current authoritative sources.
+- Confirm prerequisites and blocking decisions.
+- Stop for a decision brief when a material decision is unresolved.
+- Present the work-packet contract before editing.
 - Preserve unrelated and pre-existing changes.
-- Add tests with behavior, including important denial, validation, failure, and boundary paths.
-- Treat server authorization as authoritative; hidden controls are not security.
-- Never expose secrets, credentials, cookies, OAuth material, production exports, emails, task names/notes, or other private content in source, logs, prompts, fixtures, screenshots, or evidence.
-- Never claim a check passed unless it ran in the current worktree and the result was observed. Mark unavailable checks `NOT RUN`, explain why, and state residual risk.
-- Do not commit, push, open/merge a PR, deploy, change Cloudflare/DNS/OAuth, update external trackers, reset data, or perform destructive operations unless Brian explicitly requests that exact action.
-- Stop immediately on a P0 condition. Do not improvise a production or migration repair.
+- Implement the smallest coherent approved change.
+- Add relevant behavior and failure-path coverage.
+- Run and record risk-based verification.
+- Review the final diff and worktree.
+- Update the durable handoff.
+- Stop after the packet.
 
-### Before handoff
-
-1. Run the packet's narrow tests and every milestone-required check currently applicable.
-2. Review the final diff for scope, correctness, secrets, private data, debug output, generated artifacts, and accidental unrelated edits.
-3. Update only the active milestone's status, Decision Log, Risk Log, and Evidence Index when actual evidence supports the update.
-4. Set `Ready for PM/QA` only if all committed packets and exit criteria are complete. Otherwise use `Partial`, `Blocked`, or `In Progress` accurately.
-5. Leave the repository runnable or explain why it is not.
-
-### Required output
+The final result must use the repository-required Implementation handoff format and report one of:
 
 ```text
-Status: Ready for PM/QA | Blocked | Partial | In Progress
-Milestone/work packet:
-Outcome:
-Files changed:
-Behavior changed:
-Decisions made within Claude's authority:
-Tests/checks run and results:
-Manual verification:
-Acceptance criteria/evidence updated:
-Known gaps and risks:
-Unrelated pre-existing changes preserved:
-Resolved model/effort used:
-Recommended independent reviewer model/effort:
-Next action for Codex/Brian:
+Ready for PM/QA
+Partial
+Blocked
 ```
 
-Stop after the handoff. Do not continue into another packet without review or explicit instruction.
+If not all milestone packets and exit criteria are complete, do not report `Ready for PM/QA`.
 
-## Stage 3 — QA
+# Claude self-verification
 
-### Trigger examples
+## Trigger examples
 
 ```text
-Run M1 QA
+M1 Verification
+Verify M1 Implementation
+Re-run M1 implementation checks
+```
+
+Claude must invoke:
+
+```text
+verify-implementation <milestone ID> [optional scope]
+```
+
+This is not independent QA. The skill may run approved checks and update evidence and handoff records, but it must not edit application code or convert failures directly into fixes.
+
+A failed verification should direct the next action to `address-review` or `milestone-implement`, depending on whether the failure originated from Codex findings or incomplete implementation.
+
+# Claude correction after review
+
+## Trigger examples
+
+```text
+Address M1 review findings P1-01 and P2-03
+Fix all M1 QA findings
+Correct M3 finding P2-02
+```
+
+Claude must invoke:
+
+```text
+address-review <milestone ID> <exact finding IDs or explicit all>
+```
+
+If Brian does not identify findings and does not explicitly say all, Claude must enumerate the open actionable findings and stop rather than assuming scope.
+
+Correction authorizes only the selected findings and the smallest required regression coverage. It does not authorize unrelated milestone work, changed acceptance criteria, commit, deployment, production mutation, or acceptance.
+
+The required result is:
+
+```text
+Ready for re-review
+Partial
+Blocked
+```
+
+# Decision brief
+
+## Trigger examples
+
+```text
+M1 Decision: authentication provider scope
+Prepare a decision brief for M3 ownership transfer
+```
+
+Claude may invoke `decision-brief` directly, or `milestone-implement` may invoke it when `decision-gate-audit` blocks dependent work.
+
+The brief is read-only. It must separate facts, inferences, proposals, and approvals; present materially distinct options; recommend one option; identify what may continue safely; and state the exact decision required from Brian.
+
+A decision brief does not record or approve the decision. The authoritative milestone Decision Log or Brian's explicit instruction must do that.
+
+# Commit operation
+
+## Trigger example
+
+```text
+/commit-milestone M1
+```
+
+`commit-milestone` is intentionally direct-invocation only. A natural-language request such as `Commit M1` should cause Claude to ask Brian to invoke the slash command.
+
+The command authorizes exactly one local commit after:
+
+- Milestone bootstrap.
+- Controlled Git delivery checks.
+- Required verification freshness checks.
+- README accuracy review when required.
+- Exact staged-diff review.
+- Durable handoff update.
+
+It does not authorize push, pull request creation, merge, deployment, release, tag, amend, squash, rebase, reset, force-push, or history rewrite.
+
+# Production and external mutation gate
+
+Any request involving deployment, migration execution, destructive data work, DNS, OAuth, production configuration, or another external-system mutation must first invoke:
+
+```text
+production-mutation-gate <exact action> <exact non-secret target>
+```
+
+The gate never performs the mutation. It establishes the exact action, target, blast radius, backup and recovery evidence, rollback or containment, monitoring, required approvals, and a second-turn confirmation phrase.
+
+Implementation, testing, milestone completion, or a general instruction to continue is not production authorization.
+
+# Stage 3: QA
+
+## Trigger examples
+
+```text
+M1 QA
 Review M1 for QA
 Run M3 gate review
 ```
 
-### Role and mode
+## Role and mode
 
-Codex acts as independent PM/QA reviewer. Claude's complete handoff must be available in the task or milestone evidence. This stage is read-only: do not implement fixes, rewrite the milestone, commit, push, deploy, mutate external systems, or perform destructive actions.
+Codex acts as independent PM and QA reviewer. Claude's handoff must be available in `.handoffs/M#-handoff.md` and supported by repository evidence.
 
-Use High reasoning for routine packets and Extra High for auth, authorization, privacy, public data, migrations, recovery, hardening, or launch.
+This stage is read-only except for the required handoff update. Do not implement fixes, rewrite application files, commit, push, deploy, mutate external systems, or perform destructive actions.
 
-### Review boundary
+Use High reasoning for routine packets. Use Extra High for authentication, authorization, privacy, public data, migrations, recovery, hardening, or launch.
+
+## Review boundary
 
 After shared startup:
 
-1. Read Claude's handoff and identify claimed files, behavior, checks, evidence, gaps, and pre-existing changes.
-2. Inspect the actual complete diff/commit range. Determine the correct base from the handoff and repository history; never review only Claude's summary.
-3. Read every changed file and nearby code needed to understand callers, data flow, policies, failure paths, and tests.
+1. Read Claude's handoff and identify claimed files, behavior, checks, evidence, gaps, model and effort, and preserved pre-existing changes.
+2. Determine and inspect the complete implementation diff or commit range. Never review only Claude's summary.
+3. Read every changed file and nearby code required to understand callers, data flow, policies, failure paths, and tests.
 4. Compare the milestone status, Decision Log, Risk Log, Evidence Index, and acceptance claims with observed evidence.
+5. Independently run relevant narrow checks and applicable milestone-required checks.
 
 Review for:
 
 - Correctness, regression, invalid assumptions, incomplete workflows, and state inconsistency.
-- Authorization bypass, IDOR, stale session/role behavior, privacy boundaries, public-field leakage, unsafe caching, secret/private-content exposure, and destructive actions where applicable.
-- Schema/migration constraints, ownership invariants, idempotency, deterministic reconciliation, recovery, and rollback where applicable.
-- Loading, empty, error, denial, conflict, stale/offline, long-text, accessibility, keyboard/touch/no-hover, and reference-viewport behavior where applicable.
+- Authorization bypass, IDOR, stale session or role behavior, privacy boundaries, public-field leakage, unsafe caching, private-content exposure, and destructive actions where applicable.
+- Schema and migration constraints, ownership invariants, idempotency, deterministic reconciliation, recovery, and rollback where applicable.
+- Loading, empty, error, denial, conflict, stale or offline, long-text, accessibility, keyboard, touch, no-hover, and reference-viewport behavior where applicable.
 - Missing tests for plausible denial, failure, boundary, and state-transition regressions.
-- Scope creep, unrelated edits, debug output, generated artifacts, dependency/config changes, and overstated evidence.
-- Consistency with approved product/architecture decisions and the active packet.
+- Scope creep, unrelated edits, debug output, generated artifacts, dependency or configuration changes, and overstated evidence.
+- Consistency with approved product and architecture decisions and the active packet.
 
-Independently rerun narrow relevant checks and applicable milestone-required checks. Add safe, non-mutating diagnostics if needed. Mark blocked checks `NOT RUN` with reason and residual risk. Do not use production data or expose credentials/private content.
+Mark blocked checks `NOT RUN`, with the reason and residual risk. Do not use production data or expose credentials or private content.
 
-Findings must identify a concrete failure or milestone violation, explain impact, cite tight file/line or reproducible evidence, and state the required safe outcome. Ignore purely mechanical style issues unless CI fails or behavior is affected. Use inline code comments when supported and keep line ranges tight.
+Findings must identify a concrete failure or milestone violation, explain impact, cite tight file and line, command, test, or reproducible evidence, and state the required safe outcome.
 
-### Required output
+## Required output
 
-Return findings first, ordered P0 → P3:
+Return findings first, ordered P0 through P3:
 
 ```text
 Findings:
 - [Severity] Title
-  - Evidence: file/line, test, command, or reproducible behavior
-  - Impact: affected user/data/gate
+  - Evidence: file and line, test, command, or reproducible behavior
+  - Impact: affected user, data, or gate
   - Required correction: observable safe outcome
   - Regression evidence required: test or manual proof
 
 Gate recommendation: RECOMMEND ACCEPTANCE | CHANGES REQUESTED | BLOCKED
-Milestone/work packet reviewed:
-Diff/commit range reviewed:
+Milestone and work packet reviewed:
+Diff or commit range reviewed:
 Codex reasoning level used:
 
 Acceptance criteria:
@@ -288,91 +492,94 @@ Acceptance criteria:
 - Incorrectly claimed or missing evidence:
 
 Checks independently run:
-- Command/check — PASS | FAIL | NOT RUN, with concise evidence
+- Command or check: PASS | FAIL | NOT RUN, with concise evidence
 
-Manual/visual/device verification:
+Manual, visual, and device verification:
 - Performed:
 - Still required:
 
-Security/privacy/migration/rollback assessment:
+Security, privacy, migration, and rollback assessment:
 Scope and unrelated-change assessment:
-Open P0/P1 count:
-P2/P3 disposition needed:
+Open P0 and P1 count:
+P2 and P3 disposition needed:
 
+Handoff updated:
 Recommended milestone status:
 Required next action for Claude:
 Required decision or validation from Brian:
 ```
 
-If no substantive findings exist, write `No actionable findings.` Do not mark the milestone `Accepted`; Brian owns acceptance.
+If no substantive findings exist, write `No actionable findings.` Do not mark the milestone `Accepted`.
 
-## Stage 4 — Re-review
+# Stage 4: Re-review
 
-### Trigger examples
+## Trigger examples
 
 ```text
-Run M1 Re-review
+M1 Re-review
 Re-review M1 after Claude's fixes
 Run M5 remediation review
 ```
 
-### Role and mode
+## Role and mode
 
-Codex verifies remediation independently and read-only. The original Codex review and Claude's remediation handoff must be available.
+Codex independently verifies remediation. The original Codex review and Claude's correction handoff must be available.
 
-### Review requirements
+This stage is read-only except for the required handoff update.
+
+## Review requirements
 
 After shared startup:
 
 1. Read the original findings and Claude's remediation handoff.
-2. Inspect the actual remediation diff plus surrounding code and tests.
-3. Rerun every finding's reproduction/regression check and the narrow suite affected by the fix.
+2. Inspect the complete remediation diff plus surrounding code and tests.
+3. Rerun every finding's reproduction or regression check and the narrow suite affected by the fix.
 4. Check for new regressions, scope creep, misleading evidence, or changes to accepted decisions.
-5. Verify milestone status and Evidence/Risk/Decision logs against observed results.
+5. Verify milestone status and Evidence, Risk, and Decision logs against observed results.
 
 For each original finding, report:
 
 ```text
-Finding title/severity:
+Finding title and severity:
 Status: RESOLVED | PARTIALLY RESOLVED | NOT RESOLVED | CANNOT VERIFY
 Evidence observed:
-Remaining impact/risk:
+Remaining impact or risk:
 Required next action:
 ```
 
-Then report new actionable findings, if any, ordered P0 → P3 with tight file/line or reproducible evidence.
+Then report new actionable findings, if any, ordered P0 through P3.
 
-### Required output
+## Required output
 
 ```text
 Re-review recommendation: RECOMMEND ACCEPTANCE | CHANGES REQUESTED | BLOCKED
+Milestone and remediation range reviewed:
 Checks run and results:
+Original finding dispositions:
+New findings:
 Acceptance evidence now complete:
 Acceptance evidence still missing:
-Open P0/P1 count:
+Open P0 and P1 count:
+Handoff updated:
 Recommended milestone status:
 Next action for Claude:
 Next action or decision for Brian:
 ```
 
-Do not mark the milestone `Accepted`; Brian owns acceptance.
+Do not mark the milestone `Accepted`.
 
-## Cross-project reuse
+## Project and skill boundary
 
-This checked-in runbook is the canonical project workflow. The root tool files are intentionally thin:
+This checked-in runbook is the canonical Dash2 command and role-routing contract.
 
-- `CLAUDE.md` gives Claude project context and routes milestone commands here.
-- `AGENTS.md` gives Codex project context and routes milestone commands here.
-- This file defines the repeatable stages and output contracts.
-- The milestone documents define project-specific scope, decisions, models, tests, and gates.
+- `CLAUDE.md` defines Claude's Dash2-specific authority, project guardrails, and natural-language skill routing.
+- `AGENTS.md` defines Codex's Dash2-specific review authority.
+- This runbook defines command grammar, ownership, stage results, and the full Codex review procedures.
+- Installed Claude skills implement repeatable Claude workflows.
+- Milestone documents define project-specific scope, decisions, models, tests, evidence, rollback, and gates.
 
-For use across unrelated projects, package the command parser and four stage procedures as a personal skill in each tool while keeping product-specific facts in each repository:
+The reusable Claude procedures belong in the installed skills. Do not copy their full internal procedures back into this runbook. This file should state what must be invoked, what authority applies, and what outcome is required.
 
-- Claude personal skill: `~/.claude/skills/milestone-workflow/SKILL.md`.
-- Codex personal skill: `~/.agents/skills/milestone-workflow/SKILL.md`.
-
-Both tools use `SKILL.md`-based skills, so the workflow body can stay nearly identical. Use small tool-specific adapters only where model controls, instruction-file discovery, or output directives differ. Do not place project-specific stack, filenames, commands, or milestone decisions in the personal skill; the skill must discover those from `CLAUDE.md`/`AGENTS.md` and `docs/milestones/`.
-
-Promote this runbook into personal skills after it has been exercised through at least one full readiness → implementation → QA → re-review cycle and corrected for real friction.
+For another project, reuse the skill pack and create project-specific `CLAUDE.md`, `AGENTS.md`, milestone index, and command runbook that define that project's authority and source-of-truth hierarchy.
 
 **Last updated:** 2026-07-23

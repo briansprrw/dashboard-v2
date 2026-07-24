@@ -27,24 +27,71 @@ Claude must not mark its own milestone `Accepted`. The highest self-assigned sta
 
 If Codex review notes conflict with an implementation choice, do not argue by assertion or silently work around the review. Reproduce the evidence, explain the tradeoff, and either correct the work or request a decision from Brian.
 
-## Milestone commands
+## Milestone commands and skill routing
 
-The shared command protocol lives in `docs/prompts/milestone-command-runbook.md`.
+The shared command protocol lives in `docs/prompts/milestone-command-runbook.md`. The installed milestone skills implement its repeatable procedures. This repository file remains authoritative for Dash2-specific roles, scope, safety, and approval boundaries.
 
-When Brian uses a milestone command, read that runbook in full and execute the matching stage:
+### Natural-language commands
+
+Treat a message that clearly contains a milestone ID and stage as a milestone command even when Brian omits `Run`, uses different capitalization, or does not type a slash command. Examples include:
 
 ```text
-Run M0 Readiness
+M0 Readiness
+M1 Implementation
 Run M1 Implementation
-Run M1 QA
-Run M1 Re-review
+Implement M1
+Continue M1 Implementation
+M1 Verification
+Verify M1 Implementation
+Address M1 review findings P1-01 and P2-03
+M1 Decision: authentication provider scope
+M1 QA
+M1 Re-review
+Commit M1
 ```
 
-Natural variants such as `Run the M0 Readiness checks`, `Review M1 for QA`, and `Re-review M1 after Claude's fixes` map to the same stages.
+Resolve the milestone ID and stage from the current message, never from conversational recency. Preserve any packet name, finding IDs, decision topic, or other scope included in the same message.
 
-Claude owns the **Implementation** stage. If Brian directs Claude to run Readiness, QA, or Re-review, explain that the independent stage belongs to Codex and stop unless Brian explicitly changes the role assignment. Never treat a prior session's milestone as the target; resolve the ID from the current command.
+### Required workflow routing
 
-For Implementation, execute only the next approved work packet and stop after the required handoff. A milestone command never implies commit, push, deploy, production mutation, destructive action, acceptance, or permission to begin the next milestone.
+When Claude owns the requested stage, invoke the matching installed skill through the Skill tool. Do not imitate, summarize, or manually recreate the skill's procedure instead of invoking it.
+
+| Brian's request | Required skill invocation |
+| --- | --- |
+| `M# Implementation`, `Run M# Implementation`, `Implement M#`, or equivalent | Invoke `milestone-implement` with the milestone ID and any stated packet or scope. |
+| `Continue M# Implementation` | Invoke `milestone-implement` with the milestone ID. The skill must independently resolve the next approved packet and may not rely on conversational recency. |
+| `M# Verification`, `Verify M# Implementation`, or equivalent Claude self-check | Invoke `verify-implementation` with the milestone ID and optional scope. This is not independent QA. |
+| `Address M# review findings ...`, `Fix M# QA findings ...`, or equivalent | Invoke `address-review` with the milestone ID and the exact finding IDs or `all` only when Brian explicitly says all. |
+| A material unresolved milestone decision | Invoke `decision-brief` with the milestone ID and decision ID or topic. |
+| Deployment, migration, destructive work, DNS, OAuth, production configuration, or another external mutation | Invoke `production-mutation-gate` with the exact action and non-secret target before any mutation workflow proceeds. |
+| `Commit M#` or equivalent explicit commit request | Require direct invocation of `/commit-milestone M#` unless the installed skill is intentionally configured for model invocation. Do not substitute ordinary Git commands. |
+
+If a required skill is unavailable, hidden from Claude, denied by permissions, or fails to load, stop as `Blocked` and identify the missing capability. Do not fall back to an abbreviated improvised workflow.
+
+### Stage ownership
+
+Claude owns the **Implementation**, implementation **Correction**, and implementation self-**Verification** stages.
+
+Codex owns **Readiness**, independent **QA**, and **Re-review**. When Brian says `M# Readiness`, `M# QA`, or `M# Re-review`, explain that the independent stage belongs to Codex and stop unless Brian explicitly reassigns that stage to Claude. Do not route `M# QA` to `verify-implementation`; that skill is only Claude's self-verification.
+
+Claude must not invoke an implementation or correction skill merely because a prior message discussed that work. The current message must request the action or clearly continue an already authorized active skill workflow.
+
+### Foundation skill composition
+
+The workflow skills must invoke their required foundation skills rather than replacing them with shortened procedures:
+
+- `milestone-session-bootstrap`
+- `decision-gate-audit`
+- `implementation-work-packet`
+- `verification-evidence`
+- `durable-handoff`
+- `defect-triage`
+- `controlled-git-delivery`
+- `production-mutation-gate`
+
+Use a foundation skill directly only for its defined diagnostic or gate purpose. Foundation skill invocation does not grant broader implementation, Git, production, acceptance, or scope authority.
+
+For Implementation, execute only the next approved work packet and stop after the required handoff. A milestone command never implies commit, push, pull request creation, merge, deployment, migration, production mutation, destructive action, acceptance, or permission to begin the next milestone.
 
 ## Source-of-truth order
 
