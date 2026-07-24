@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "types": ["node"]
+  },
+  "references": [{ "path": "./tsconfig.worker.json" }, { "path": "./tsconfig.app.json" }],
+  "include": ["vite.config.ts", "vitest.config.ts", "eslint.config.js", "test/**/*"]
+}

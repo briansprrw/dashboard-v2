@@ -1,0 +1,69 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "dash2",
+  "main": "src/server/index.ts",
+  "compatibility_date": "2026-07-23",
+  "compatibility_flags": ["nodejs_compat"],
+  // A plain Wrangler var, not a Vite build-time define: this must resolve
+  // identically whether the Worker is bundled by Wrangler's own bundler
+  // (plain `wrangler dev`/`wrangler deploy`) or by @cloudflare/vite-plugin
+  // (`vite dev`, `vite build`) — a build-time `define` only works for the
+  // latter and silently breaks the former. Bump manually until a real
+  // release/versioning process exists.
+  "vars": {
+    "APP_VERSION": "0.1.0-m1",
+  },
+  "assets": {
+    "directory": "./dist/client",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/v1", "/api/v1/*"],
+  },
+  // Local-development-only bindings. These IDs are placeholders that only
+  // resolve against the local Wrangler/Miniflare simulation (--local / vite
+  // dev). Real preview/staging/production database_id and KV id values are
+  // an M1.4 dependency: they require Brian to identify or create the actual
+  // isolated Cloudflare resources before a non-local deploy is possible.
+  "d1_databases": [
+    {
+      "binding": "DASH2_DB",
+      "database_name": "dash2-local",
+      "database_id": "00000000-0000-0000-0000-000000000001",
+    },
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "DASH2_SESSIONS",
+      "id": "00000000000000000000000000000002",
+    },
+  ],
+  // Preview environment. IMPORTANT: with @cloudflare/vite-plugin, Cloudflare
+  // environment selection happens at BUILD time via `CLOUDFLARE_ENV=preview`
+  // (see docs/runbooks/preview-deployment.md) — `wrangler deploy --env
+  // preview` has no effect on a Vite-produced build; confirmed via
+  // `wrangler deploy --dry-run` during M1.4. Deploying a separate Worker
+  // named "dash2-preview" (Wrangler's `<name>-<env>` auto-suffix) uses the
+  // real, isolated Cloudflare resources created for M1.4 — never the local
+  // placeholder bindings above, and never any V1 resource. Bindings and
+  // vars are non-inheritable in Wrangler, so they are repeated here rather
+  // than shared with the top-level (local-only) config.
+  "env": {
+    "preview": {
+      "vars": {
+        "APP_VERSION": "0.1.0-m1",
+      },
+      "d1_databases": [
+        {
+          "binding": "DASH2_DB",
+          "database_name": "dash2-preview",
+          "database_id": "6c792d38-2c6d-46ec-9dcb-1b8fdb0450ef",
+        },
+      ],
+      "kv_namespaces": [
+        {
+          "binding": "DASH2_SESSIONS",
+          "id": "d1b4a1d4942548dba1f5f94f2835cc20",
+        },
+      ],
+    },
+  },
+}

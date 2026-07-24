@@ -20,6 +20,20 @@ build/
 .next/
 out/
 
+# Cloudflare Workers / Wrangler local state
+.wrangler/
+.dev.vars
+.dev.vars.*
+
+# TypeScript project-reference build output (declarations/build info only)
+.tsbuild/
+*.tsbuildinfo
+
+# Test/coverage output
+coverage/
+test-results/
+playwright-report/
+
 # Editor / OS
 .vscode/
 .idea/

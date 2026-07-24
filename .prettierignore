@@ -1,0 +1,21 @@
+dist
+.wrangler
+node_modules
+coverage
+package-lock.json
+.gitkeep
+
+# Cloudflare-specific plain-text config format; no Prettier parser exists.
+public/_headers
+
+# Pre-existing M0-era planning/governance documentation is out of M1 scope;
+# do not reformat or gate CI on content this milestone did not author.
+CLAUDE.md
+AGENTS.md
+README.md
+LICENSE
+docs/milestones/
+docs/plans/
+docs/prompts/
+docs/mockups/
+docs/audits/
