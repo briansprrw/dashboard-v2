@@ -143,16 +143,16 @@ Work in small, reviewable increments. Read a file before editing it. Match the r
 
 ## Model and effort policy
 
-The milestone documents name the recommended primary and review models. As of 2026-07-22, the routing baseline is:
+The milestone documents name the recommended primary and review models. As of 2026-07-24, with Codex credits limited, the routing baseline is:
 
 
 | Work                                                                                      | Model                      | Effort        | Use                                                                                     |
 | ----------------------------------------------------------------------------------------- | -------------------------- | ------------- | --------------------------------------------------------------------------------------- |
 | Mechanical inventory, formatting, bounded search                                          | Claude Haiku 4.5           | Not supported | Read-only or easily verified work only; never final security/product judgment           |
-| Routine implementation and test iteration                                                 | Claude Sonnet 5            | `high`        | Default implementation model                                                            |
-| Complex architecture, auth, authorization, privacy, migration design, difficult debugging | Claude Opus 4.8            | `xhigh`       | Intelligence-sensitive work and independent review                                      |
-| Long-running, cross-system migration or release investigation                             | Claude Fable 5             | `high`        | Only when the task genuinely spans a long autonomous session and access/cost justify it |
-| Exceptional unresolved critical problem                                                   | Claude Opus 4.8 or Fable 5 | `max`         | One-off escalation with a stated hypothesis; not a default                              |
+| Routine implementation and test iteration                                                 | Claude Sonnet 5            | `high`        | Default implementation model; highly capable for most tasks within a clear work packet  |
+| Complex architecture, auth, authorization, privacy, migration design, difficult debugging | Claude Opus 5              | `xhigh`       | Reserve for intelligence-sensitive work; use sparingly while Codex credits are limited  |
+| Long-running, cross-system migration or release investigation                             | Claude Fable 5             | `high`        | Only when the task genuinely spans a long autonomous session and cost/benefit justify it |
+| Exceptional unresolved critical problem                                                   | Claude Opus 5              | `max`         | One-off escalation with stated hypothesis; coordinate before use given credit limits    |
 
 Use current Claude Code aliases when practical (`sonnet`, `opus`, `fable`, `haiku`) and record the resolved model/version in the handoff. Aliases can change. Do not silently downgrade a milestone's required review model. If the requested model is unavailable, stop and report the fallback choice and risk before high-risk work.
 
@@ -201,6 +201,7 @@ Official reference: [Claude Code model configuration](https://code.claude.com/do
 - After each milestone passes its end gate, review `README.md` against the completed, verified project state before asking Brian for commit approval. Make any accurate public-facing updates the milestone requires; if no edit is needed, explicitly report that the README was reviewed and remains current.
 - Include any required README update in the final milestone diff and verification. Do not commit milestone work before this README review is complete.
 - When a commit is authorized, make it intentional, coherent, and suitable for the public history. Do not mix unrelated changes, generated files, incidental cleanup, or separate concerns into it.
+- Commit messages are Brian's voice and the public history; do not include co-authored trailers or other attributions.
 - Do not commit directly to `main` unless Brian explicitly requests it.
 - Authorization to commit does not authorize pushing, opening a PR, merging, deploying, amending, squashing, or rewriting history. Each requires explicit authorization for that action.
 - Never claim a check passed unless it was run in the current worktree and its exit result was observed.

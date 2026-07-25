@@ -28,16 +28,16 @@ Codex owns Readiness, QA, and Re-review. Claude owns Implementation. Brian owns 
 
 | ID | Milestone                                                                            | Status      | Primary Claude                                                           | Required review                                         | Exit approval |
 | -- | ------------------------------------------------------------------------------------ | ----------- | ------------------------------------------------------------------------ | ------------------------------------------------------- | ------------- |
-| M0 | [Product and architecture decisions](./M0-product-and-architecture-decisions.md)     | Accepted    | Complete (Opus 4.8 `xhigh`)                                              | Codex + Brian (Complete)                                | Brian (Approved 2026-07-23) |
-| M1 | [Foundation and delivery](./M1-foundation-and-delivery.md)                           | Ready for PM/QA | Sonnet 5 `high` +think                                                   | Sonnet 5 `high` +think + Codex                          | Brian         |
-| M2 | [Domain, authentication, and authorization](./M2-domain-auth-and-authorization.md)   | Not Started | Opus 4.8`xhigh`                                                          | separate Opus 4.8`xhigh` + Codex                        | Brian         |
+| M0 | [Product and architecture decisions](./M0-product-and-architecture-decisions.md)     | Accepted    | Complete (Opus 5 `xhigh`)                                                | Codex + Brian (Complete)                                | Brian (Approved 2026-07-23) |
+| M1 | [Foundation and delivery](./M1-foundation-and-delivery.md)                           | Accepted    | Sonnet 5 `high` +think                                                   | Sonnet 5 `high` +think + Codex                          | Brian (Approved 2026-07-24) |
+| M2 | [Domain, authentication, and authorization](./M2-domain-auth-and-authorization.md)   | Not Started | Opus 5`xhigh`                                                            | separate Opus 5`xhigh` + Codex                          | Brian         |
 | M3 | [Glance dashboard and core tasks](./M3-glance-dashboard-and-core-tasks.md)           | Not Started | Sonnet 5`high`                                                           | Sonnet 5`high` +think + Codex visual/functional QA      | Brian         |
-| M4 | [Management, sharing, and admin](./M4-management-sharing-and-admin.md)               | Not Started | Sonnet 5`high`                                                           | Opus 4.8`xhigh` permission review + Codex               | Brian         |
-| M5 | [Public dashboards and display access](./M5-public-dashboards-and-display-access.md) | Not Started | Sonnet 5`high`                                                           | Opus 4.8`xhigh` privacy review + Codex                  | Brian         |
-| M6 | [Migration and reconciliation](./M6-migration-and-reconciliation.md)                 | Not Started | Sonnet 5`high` +think (Fable 5 `high` fallback if a rehearsal runs long) | Opus 4.8`xhigh` + Codex                                 | Brian         |
+| M4 | [Management, sharing, and admin](./M4-management-sharing-and-admin.md)               | Not Started | Sonnet 5`high`                                                           | Opus 5`xhigh` permission review + Codex                 | Brian         |
+| M5 | [Public dashboards and display access](./M5-public-dashboards-and-display-access.md) | Not Started | Sonnet 5`high`                                                           | Opus 5`xhigh` privacy review + Codex                    | Brian         |
+| M6 | [Migration and reconciliation](./M6-migration-and-reconciliation.md)                 | Not Started | Sonnet 5`high` +think (Fable 5 `high` fallback if a rehearsal runs long) | Opus 5`xhigh` + Codex                                   | Brian         |
 | M7 | [Hardening and device QA](./M7-hardening-and-device-qa.md)                           | Not Started | Sonnet 5`high` +think                                                    | Sonnet 5`high` +think + Codex; targeted human device QA | Brian         |
 | M8 | [Production launch](./M8-production-launch.md)                                       | Not Started | Sonnet 5`high` +think as runbook assistant                               | Codex + Brian at every production gate                  | Brian         |
-| M9 | [Validation and V1 retirement](./M9-validation-and-v1-retirement.md)                 | Not Started | Sonnet 5`high`                                                           | Opus 4.8`high` + Codex                                  | Brian         |
+| M9 | [Validation and V1 retirement](./M9-validation-and-v1-retirement.md)                 | Not Started | Sonnet 5`high`                                                           | Opus 5`xhigh` + Codex                                   | Brian         |
 
 Update this dashboard only after the corresponding milestone document records the same status and evidence.
 
@@ -69,7 +69,7 @@ M5 may be deferred after M4 if public dashboards are not in launch scope. Record
 
 ## Model-routing rationale
 
-The default implementation and review model is **Claude Sonnet 5 at `high` effort**: it offers the best speed/intelligence balance for scoped coding, test iteration, and routine review. Reserve **Claude Opus 4.8 at `xhigh`** for milestones where a wrong answer could reshape the architecture, break authorization, expose private data, or corrupt migration (M0, M2 both roles; M4/M5 review; M6/M9 review). **Claude Fable 5 at `high`** is not a default anywhere on this dashboard; it is only a documented fallback for M6 if a specific migration rehearsal genuinely needs a long autonomous session — do not invoke it for ordinary work packets. **Claude Haiku 4.5** is allowed for mechanical, easily checked inventory only and has no effort control.
+The default implementation and review model is **Claude Sonnet 5 at `high` effort**: it is highly capable for most tasks within a clear work packet and offers the best speed/intelligence balance for scoped coding, test iteration, and routine review. Reserve **Claude Opus 5 at `xhigh`** for milestones where a wrong answer could reshape the architecture, break authorization, expose private data, or corrupt migration (M0, M2 both roles; M4/M5 review; M6/M9 review) — use sparingly while Codex credits are limited. **Claude Fable 5 at `high`** is not a default anywhere on this dashboard; it is only a documented fallback for M6 if a specific migration rehearsal genuinely needs a long autonomous session — do not invoke it for ordinary work packets. **Claude Haiku 4.5** is allowed for mechanical, easily checked inventory only and has no effort control.
 
 ### `+think` notation
 
@@ -204,4 +204,4 @@ No safe default exists for authorization, privacy, destructive lifecycle, produc
 
 These inputs remain proposals until M0 records approval. V1 `Roadmap.md` and `README.md` are reference material, not Dash2 scope.
 
-**Last updated:** 2026-07-23
+**Last updated:** 2026-07-24
