@@ -2,8 +2,17 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "composite": true,
-    "types": ["node"]
+    // `test/integration/**` runs inside workerd against a real D1 database, so
+    // this project needs the Workers globals and the `cloudflare:test` module
+    // declarations alongside the Node types the config files use.
+    "types": ["node", "@cloudflare/workers-types", "@cloudflare/vitest-pool-workers/types"]
   },
   "references": [{ "path": "./tsconfig.worker.json" }, { "path": "./tsconfig.app.json" }],
-  "include": ["vite.config.ts", "vitest.config.ts", "eslint.config.js", "test/**/*"]
+  "include": [
+    "vite.config.ts",
+    "vitest.config.ts",
+    "vitest.workers.config.ts",
+    "eslint.config.js",
+    "test/**/*"
+  ]
 }

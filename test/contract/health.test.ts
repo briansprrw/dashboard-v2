@@ -6,7 +6,11 @@ import { createMockEnv } from '../fixtures/mock-env';
 
 describe('GET /api/v1/health', () => {
   it('reports ok with version/schema info when the schema is compatible', async () => {
-    const res = await app.request('/api/v1/health', {}, createMockEnv({ schemaVersion: 1 }));
+    const res = await app.request(
+      '/api/v1/health',
+      {},
+      createMockEnv({ schemaVersion: EXPECTED_SCHEMA_VERSION })
+    );
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -96,7 +100,11 @@ describe('GET /api/v1/health', () => {
     });
 
     it('does not log anything for the routine case of a compatible schema', async () => {
-      await app.request('/api/v1/health', {}, createMockEnv({ schemaVersion: 1 }));
+      await app.request(
+        '/api/v1/health',
+        {},
+        createMockEnv({ schemaVersion: EXPECTED_SCHEMA_VERSION })
+      );
 
       expect(consoleErrorSpy).not.toHaveBeenCalled();
     });

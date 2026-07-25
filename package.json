@@ -17,6 +17,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "vitest run --project=integration",
     "db:migrate:local": "wrangler d1 migrations apply DASH2_DB --local"
   },
   "repository": {
@@ -31,6 +32,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.47.0",
+    "@cloudflare/vitest-pool-workers": "^0.18.8",
     "@cloudflare/workers-types": "^5.20260723.1",
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.1.1",

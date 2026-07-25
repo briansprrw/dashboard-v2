@@ -1,15 +1,29 @@
 import { defineConfig } from 'vitest/config';
 
-// Deliberately independent of vite.config.ts: the Cloudflare Vite plugin's
-// worker environment (nodejs_compat resolve.external) is incompatible with
-// Vitest's default Node test environment. Server code under test here is
-// plain Hono/TypeScript with no Workers-runtime-only APIs, so a plain Node
-// test environment is sufficient for M1. Revisit with
-// @cloudflare/vitest-pool-workers if a future milestone needs workerd-exact
-// runtime behavior in tests.
+// Two test projects with deliberately different runtimes:
+//
+//   `node`        — contract/unit tests for plain Hono/TypeScript code with
+//                   synthetic doubles. Fast, no workerd, no database. This is
+//                   the M1 configuration, unchanged in behaviour.
+//   `integration` — repository/schema tests that must execute real SQL against
+//                   a real, actually-migrated D1 database. Defined separately
+//                   in vitest.workers.config.ts because it runs inside workerd
+//                   via @cloudflare/vitest-pool-workers.
+//
+// Still deliberately independent of vite.config.ts: the Cloudflare Vite
+// plugin's worker environment (nodejs_compat resolve.external) is incompatible
+// with Vitest's Node test environment.
 export default defineConfig({
   test: {
-    environment: 'node',
-    include: ['test/**/*.test.ts'],
+    projects: [
+      {
+        test: {
+          name: 'node',
+          environment: 'node',
+          include: ['test/{contract,unit}/**/*.test.ts'],
+        },
+      },
+      './vitest.workers.config.ts',
+    ],
   },
 });

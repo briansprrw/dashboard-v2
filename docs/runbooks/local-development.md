@@ -41,7 +41,8 @@ To verify from a fully empty state, delete `.wrangler/` and re-run `npm run db:m
 | `npm run typecheck`               | `tsc --build` across the app/worker/node TypeScript project references.                                  |
 | `npm run lint`                    | ESLint flat config across `src/`, `test/`, and root config files.                                        |
 | `npm run format` / `format:check` | Prettier write/check.                                                                                    |
-| `npm run test`                    | Run the Vitest suite once.                                                                               |
+| `npm run test`                    | Run both Vitest projects once: `node` (contract) and `integration` (real D1 in workerd).                 |
+| `npm run test:integration`        | Run only the `integration` project — repository/schema tests against a migrated D1 database.             |
 | `npm run db:migrate:local`        | Apply pending migrations to the local D1 database.                                                       |
 
 ## Verified evidence (M1.1, 2026-07-23)

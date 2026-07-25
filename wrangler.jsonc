@@ -50,6 +50,20 @@
     "preview": {
       "vars": {
         "APP_VERSION": "0.1.0-m1",
+        // Authentication configuration (M2.3). Non-secret values only —
+        // GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are Wrangler secrets set
+        // with `wrangler secret put --env preview` and never appear here.
+        //
+        // OAUTH_REDIRECT_URI must match the Authorized redirect URI registered
+        // on the Google OAuth client byte for byte, including scheme and the
+        // absence of a trailing slash — Google compares it exactly.
+        "OAUTH_REDIRECT_URI": "https://dash2-preview.b-f75.workers.dev/api/v1/auth/callback",
+        // Origins permitted to make state-changing requests. Preview is a
+        // single-origin application, so this is just its own hostname.
+        "ALLOWED_ORIGINS": "https://dash2-preview.b-f75.workers.dev",
+        // COOKIE_SECURE is deliberately unset: anything other than the literal
+        // "false" yields Secure cookies, so preview (HTTPS) gets them without
+        // needing to say so. Only plain-HTTP local development sets "false".
       },
       "d1_databases": [
         {

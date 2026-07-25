@@ -6,7 +6,7 @@ Scope: the isolated Dash2 **preview** environment only. See `docs/runbooks/envir
 
 - A dedicated Cloudflare Worker named `dash2-preview`, D1 database `dash2-preview`, and KV namespace `dash2-preview-sessions` — all created in Brian's existing Cloudflare account (the same account as V1), isolated from V1 by dedicated resource naming only (Brian's explicit decision — not a separate account).
 - Served at the default `dash2-preview.<account-subdomain>.workers.dev` hostname. No custom `dnky.us` subdomain or DNS record is used for preview, so no DNS/Zone permissions or changes are involved.
-- V1's actual resources (`dashboard` D1, `SESSIONS` KV) are never referenced anywhere in Dash2's configuration. Do not add them.
+- **Dash2 never binds a V1 resource.** Every Dash2 binding points at a `dash2-*` resource; V1's own D1 and KV are not referenced in any Dash2 config file, and must not be added. (Naming caution when reading configs: Dash2's KV _binding_ is `DASH2_SESSIONS`, while V1's KV _namespace_ is separately named — similar enough to misread at a glance, but they are different resources.)
 
 ## How a deploy happens
 
@@ -68,7 +68,7 @@ npx wrangler rollback <version-id> --env preview -m "Rolling back: <reason>"
 
 ## Teardown
 
-To fully remove the preview environment (only ever the `dash2-preview`-named resources — never touch `dashboard` or `SESSIONS`, which are V1's):
+To fully remove the preview environment. **Every command below targets a `dash2-*`-named resource explicitly — verify the name in each one before running it.** V1's resources live in this same Cloudflare account, so a mistyped name here is a destructive action against the live V1 application:
 
 ```sh
 npx wrangler delete --name dash2-preview

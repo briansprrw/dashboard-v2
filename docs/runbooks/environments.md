@@ -16,13 +16,13 @@ Non-secret environment contract for all four environments named in M1's scope: l
 
 ## Preview
 
-- **Status:** exists (Cloudflare resources created under a confirmed production-mutation-gate, M1.4). No real deploy has occurred yet as of this writing — see `docs/runbooks/preview-deployment.md` for current deploy status.
+- **Status:** exists and has been deployed to (Cloudflare resources created under a confirmed production-mutation-gate, M1.4; real deploy and rollback rehearsal both completed 2026-07-24). See `docs/runbooks/preview-deployment.md` for the deploy evidence and current version.
 - **Hostname:** `dash2-preview.<account-subdomain>.workers.dev` — Cloudflare's default `*.workers.dev` hostname. No custom `dnky.us` subdomain or DNS record.
 - **D1 binding:** `DASH2_DB` → real D1 database `dash2-preview` (`database_id: 6c792d38-2c6d-46ec-9dcb-1b8fdb0450ef`), configured under `wrangler.jsonc` `env.preview`.
 - **KV binding:** `DASH2_SESSIONS` → real KV namespace `dash2-preview-sessions` (`id: d1b4a1d4942548dba1f5f94f2835cc20`).
-- **Vars:** `APP_VERSION` set under `wrangler.jsonc` `env.preview.vars`.
-- **Resource isolation:** lives in the same Cloudflare account as V1, isolated only by dedicated resource naming (`dash2-preview*`), not a separate account — Brian's explicit decision (M1-D2). V1's `dashboard` D1 and `SESSIONS` KV are never referenced anywhere in Dash2 configuration.
-- **Secret ownership:** `CLOUDFLARE_API_TOKEN` — a GitHub Actions repository secret on `briansprrw/dashboard-v2`, created and added by Brian directly; its value has never been seen by Claude. Scoped to Workers Scripts/KV/D1 edit only, not full account access.
+- **Vars:** `APP_VERSION`, plus the M2.3 authentication config `OAUTH_REDIRECT_URI` and `ALLOWED_ORIGINS`, all under `wrangler.jsonc` `env.preview.vars`. `COOKIE_SECURE` is deliberately unset so cookies are `Secure` by default.
+- **Resource isolation:** lives in the same Cloudflare account as V1, isolated only by dedicated resource naming (`dash2-preview*`), not a separate account — Brian's explicit decision (M1-D2). Every Dash2 binding points at a `dash2-*` resource; no V1-owned D1 database or KV namespace is referenced in any Dash2 configuration.
+- **Secret ownership:** `CLOUDFLARE_API_TOKEN` — a GitHub Actions repository secret on `briansprrw/dashboard-v2`, created and added by Brian directly; its value has never been seen by Claude. Scoped to Workers Scripts/KV/D1 edit only, not full account access. `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` — Wrangler secrets on the `dash2-preview` Worker, added by Brian directly 2026-07-25; their values have never been seen by Claude. See `docs/runbooks/oauth-setup.md`.
 - **Migration policy:** deliberately manual and separate from deploy — `npx wrangler d1 migrations apply DASH2_DB --env preview --remote`, run explicitly, not automated on push.
 - **Deployment authority:** automatic — any push to `main` that passes CI triggers `.github/workflows/deploy-preview.yml`, which deploys with no separate manual-approval step (Brian's explicit decision, M1-D2, variant 2a).
 - **Full detail:** `docs/runbooks/preview-deployment.md`.
@@ -41,6 +41,6 @@ Non-secret environment contract for all four environments named in M1's scope: l
 
 ## Cross-environment invariants (all environments)
 
-- No environment's `wrangler.jsonc` binding ever points at a V1-owned resource (`dashboard` D1, `SESSIONS` KV, or `dash.dnky.us`).
+- **Every Dash2 binding, in every environment, points at a `dash2-*` resource.** No Dash2 config file references a V1-owned D1 database, KV namespace, or hostname, and none may be added. Reading caution: Dash2's KV _binding name_ is `DASH2_SESSIONS` and V1's KV _namespace_ has a similar name — they are different resources, and the similarity is a reading hazard rather than a wiring one.
 - No secret value is ever committed to source, logged, or placed in a runbook/handoff/milestone document — only secret _names_ and _ownership location_.
 - Every real (non-local) Cloudflare or GitHub mutation goes through the `production-mutation-gate` skill's two-phase confirmation before execution.
