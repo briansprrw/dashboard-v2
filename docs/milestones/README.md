@@ -28,16 +28,16 @@ Codex owns Readiness, QA, and Re-review. Claude owns Implementation. Brian owns 
 
 | ID | Milestone                                                                            | Status      | Primary Claude                                                           | Required review                                         | Exit approval |
 | -- | ------------------------------------------------------------------------------------ | ----------- | ------------------------------------------------------------------------ | ------------------------------------------------------- | ------------- |
-| M0 | [Product and architecture decisions](./M0-product-and-architecture-decisions.md)     | Accepted    | Complete (Opus 5 `xhigh`)                                                | Codex + Brian (Complete)                                | Brian (Approved 2026-07-23) |
-| M1 | [Foundation and delivery](./M1-foundation-and-delivery.md)                           | Accepted    | Sonnet 5 `high` +think                                                   | Sonnet 5 `high` +think + Codex                          | Brian (Approved 2026-07-24) |
-| M2 | [Domain, authentication, and authorization](./M2-domain-auth-and-authorization.md)   | In Progress | Opus 5`xhigh`                                                            | separate Opus 5`xhigh` + Codex                          | Brian         |
-| M3 | [Glance dashboard and core tasks](./M3-glance-dashboard-and-core-tasks.md)           | Not Started | Sonnet 5`high`                                                           | Sonnet 5`high` +think + Codex visual/functional QA      | Brian         |
-| M4 | [Management, sharing, and admin](./M4-management-sharing-and-admin.md)               | Not Started | Sonnet 5`high`                                                           | Opus 5`xhigh` permission review + Codex                 | Brian         |
-| M5 | [Public dashboards and display access](./M5-public-dashboards-and-display-access.md) | Not Started | Sonnet 5`high`                                                           | Opus 5`xhigh` privacy review + Codex                    | Brian         |
-| M6 | [Migration and reconciliation](./M6-migration-and-reconciliation.md)                 | Not Started | Sonnet 5`high` +think (Fable 5 `high` fallback if a rehearsal runs long) | Opus 5`xhigh` + Codex                                   | Brian         |
-| M7 | [Hardening and device QA](./M7-hardening-and-device-qa.md)                           | Not Started | Sonnet 5`high` +think                                                    | Sonnet 5`high` +think + Codex; targeted human device QA | Brian         |
-| M8 | [Production launch](./M8-production-launch.md)                                       | Not Started | Sonnet 5`high` +think as runbook assistant                               | Codex + Brian at every production gate                  | Brian         |
-| M9 | [Validation and V1 retirement](./M9-validation-and-v1-retirement.md)                 | Not Started | Sonnet 5`high`                                                           | Opus 5`xhigh` + Codex                                   | Brian         |
+| M0 | [Product and architecture decisions](./M0-product-and-architecture-decisions.md)     | Accepted    | Complete (Opus 5 `xhigh`)                                                | Codex (`gpt-5.6-sol`, `high`) + Brian (Complete)                                | Brian (Approved 2026-07-23) |
+| M1 | [Foundation and delivery](./M1-foundation-and-delivery.md)                           | Accepted    | Sonnet 5 `high` +think                                                   | Sonnet 5 `high` +think + Codex (`gpt-5.6-sol`, `high`)                          | Brian (Approved 2026-07-24) |
+| M2 | [Domain, authentication, and authorization](./M2-domain-auth-and-authorization.md)   | Accepted    | Opus 5`xhigh` (session model deviations recorded in milestone doc)       | Fable 5 `high` (M2.5, Brian-approved deviation) + Codex (`gpt-5.6-sol`, `high`) | Brian (Approved 2026-07-27) |
+| M3 | [Glance dashboard and core tasks](./M3-glance-dashboard-and-core-tasks.md)           | Not Started | Sonnet 5`high`                                                           | Sonnet 5`high` +think + Codex (`gpt-5.6-sol`, `high`) visual/functional QA      | Brian         |
+| M4 | [Management, sharing, and admin](./M4-management-sharing-and-admin.md)               | Not Started | Sonnet 5`high`                                                           | Opus 5`xhigh` permission review + Codex (`gpt-5.6-sol`, `high`)                 | Brian         |
+| M5 | [Public dashboards and display access](./M5-public-dashboards-and-display-access.md) | Not Started | Sonnet 5`high`                                                           | Opus 5`xhigh` privacy review + Codex (`gpt-5.6-sol`, `high`)                    | Brian         |
+| M6 | [Migration and reconciliation](./M6-migration-and-reconciliation.md)                 | Not Started | Sonnet 5`high` +think (Fable 5 `high` fallback if a rehearsal runs long) | Opus 5`xhigh` + Codex (`gpt-5.6-sol`, `high`)                                   | Brian         |
+| M7 | [Hardening and device QA](./M7-hardening-and-device-qa.md)                           | Not Started | Sonnet 5`high` +think                                                    | Sonnet 5`high` +think + Codex (`gpt-5.6-sol`, `high`); targeted human device QA | Brian         |
+| M8 | [Production launch](./M8-production-launch.md)                                       | Not Started | Sonnet 5`high` +think as runbook assistant                               | Codex (`gpt-5.6-sol`, `high`) + Brian at every production gate                  | Brian         |
+| M9 | [Validation and V1 retirement](./M9-validation-and-v1-retirement.md)                 | Not Started | Sonnet 5`high`                                                           | Opus 5`xhigh` + Codex (`gpt-5.6-sol`, `high`)                                   | Brian         |
 
 Update this dashboard only after the corresponding milestone document records the same status and evidence.
 
@@ -204,4 +204,4 @@ No safe default exists for authorization, privacy, destructive lifecycle, produc
 
 These inputs remain proposals until M0 records approval. V1 `Roadmap.md` and `README.md` are reference material, not Dash2 scope.
 
-**Last updated:** 2026-07-24
+**Last updated:** 2026-07-27

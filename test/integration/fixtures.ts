@@ -51,9 +51,45 @@ export async function makeUser(
     userId: id,
     emailNormalized: `${id}@example.invalid`,
     emailDisplay: `${id}@example.invalid`,
+    subjectPending: false,
     now,
   });
   return user;
+}
+
+/**
+ * A migrated user with no verified sign-in yet: an identity row exists so the
+ * account is findable by email, but `subjectPending` is true and the stored
+ * subject is a placeholder that will never match a real Google sign-in
+ * (M2-FQA-RR-01) — the shape M6's importer will produce once it exists.
+ */
+export async function makeMigratedUser(
+  options: { now?: number } = {}
+): Promise<{ user: UserRecord; email: string; placeholderSubject: string }> {
+  const id = crypto.randomUUID();
+  const now = options.now ?? T0;
+  const email = `${id}@example.invalid`;
+  const placeholderSubject = `pending-import-${crypto.randomUUID()}`;
+  const user = await users().create({
+    id,
+    displayName: 'Test Person',
+    avatarUrl: null,
+    globalRole: 'user',
+    state: 'active',
+    locale: 'en-US',
+    timezone: 'America/Chicago',
+    now,
+  });
+  await users().createIdentity({
+    provider: 'google',
+    providerSubject: placeholderSubject,
+    userId: id,
+    emailNormalized: email,
+    emailDisplay: email,
+    subjectPending: true,
+    now,
+  });
+  return { user, email, placeholderSubject };
 }
 
 export async function makeSheet(

@@ -11,7 +11,7 @@
   // latter and silently breaks the former. Bump manually until a real
   // release/versioning process exists.
   "vars": {
-    "APP_VERSION": "0.1.0-m1",
+    "APP_VERSION": "0.2.0-m2",
   },
   "assets": {
     "directory": "./dist/client",
@@ -49,7 +49,7 @@
   "env": {
     "preview": {
       "vars": {
-        "APP_VERSION": "0.1.0-m1",
+        "APP_VERSION": "0.2.0-m2",
         // Authentication configuration (M2.3). Non-secret values only —
         // GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are Wrangler secrets set
         // with `wrangler secret put --env preview` and never appear here.

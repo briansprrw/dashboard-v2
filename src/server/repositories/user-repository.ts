@@ -7,7 +7,7 @@ import {
   type UserState,
 } from '../../shared/domain/enums';
 import type { UserIdentityRecord, UserRecord } from '../../shared/domain/records';
-import { columnList, toEnum, toNullable } from './row-mapping';
+import { columnList, fromBoolean, toBoolean, toEnum, toNullable } from './row-mapping';
 
 // Users and their provider identities. Identities live here rather than in a
 // separate repository because they are only ever read or written as part of
@@ -39,6 +39,7 @@ interface UserIdentityRow {
   user_id: string;
   email_normalized: string;
   email_display: string;
+  subject_pending: number;
   created_at: number;
   updated_at: number;
 }
@@ -66,6 +67,7 @@ const IDENTITY_COLUMNS = [
   'user_id',
   'email_normalized',
   'email_display',
+  'subject_pending',
   'created_at',
   'updated_at',
 ] as const;
@@ -94,6 +96,7 @@ function toIdentityRecord(row: UserIdentityRow): UserIdentityRecord {
     userId: row.user_id,
     emailNormalized: row.email_normalized,
     emailDisplay: row.email_display,
+    subjectPending: toBoolean(row.subject_pending, 'user_identities.subject_pending'),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -116,6 +119,16 @@ export interface CreateUserIdentityInput {
   userId: string;
   emailNormalized: string;
   emailDisplay: string;
+  /**
+   * Whether `providerSubject` is a placeholder awaiting the account's first
+   * real verified sign-in (`true`, M6's importer) or already a real, bound
+   * subject (`false`, an ordinary sign-in creating its first identity row).
+   * Required rather than defaulted (same reasoning as M2-FQA-02's privacy
+   * flags): a caller must state this explicitly, since getting it wrong in
+   * either direction either blocks a legitimate migrated user forever or
+   * reopens M2-FQA-RR-01.
+   */
+  subjectPending: boolean;
   now: number;
 }
 
@@ -194,8 +207,8 @@ export class UserRepository {
     await this.db
       .prepare(
         `INSERT INTO user_identities (provider, provider_subject, user_id, email_normalized,
-                                      email_display, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)`
+                                      email_display, subject_pending, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)`
       )
       .bind(
         input.provider,
@@ -203,6 +216,7 @@ export class UserRepository {
         input.userId,
         input.emailNormalized,
         input.emailDisplay,
+        fromBoolean(input.subjectPending),
         input.now
       )
       .run();
@@ -227,6 +241,62 @@ export class UserRepository {
   }
 
   /**
+   * Replaces a migrated identity's placeholder `provider_subject` with the
+   * verified real one from the account's first genuine sign-in, and marks the
+   * binding permanent (M2-FQA-01, M2-FQA-RR-01).
+   *
+   * A migrated account's identity row can only be created (M6, not built yet)
+   * with *some* value in `provider_subject`, because the column is `NOT NULL`
+   * and part of the table's primary key — there is no way to represent "email
+   * known, provider subject not yet verified" other than a placeholder value
+   * that is not a real Google subject. `createIdentity`'s plain `INSERT`
+   * cannot bind that account's first real sign-in: it targets the same
+   * globally-unique `email_normalized`, so the insert always collides with the
+   * placeholder row it was supposed to replace. This performs the rebind as an
+   * `UPDATE` against the placeholder's exact prior identity instead of a
+   * second insert, changing the row in place rather than duplicating it.
+   *
+   * `WHERE ... AND subject_pending = 1` is the load-bearing guard, not merely
+   * `oldProviderSubject` (M2-FQA-RR-01): the first fix let *any* differing
+   * subject rebind a row indefinitely, so a reassigned Workspace email or a
+   * changed OAuth-client subject could silently move an existing account to a
+   * different real person, and repeating the process could move it back.
+   * Once bound, `subject_pending` flips to 0 in this same statement and no
+   * later call can ever match the `WHERE` clause again for that row — a
+   * second differing subject is refused unconditionally, not merely
+   * discouraged.
+   *
+   * `oldProviderSubject` is still matched (an optimistic-concurrency guard
+   * for the race where two callers try to bind the same still-pending
+   * placeholder at once): only the first `UPDATE` matches a row, and the
+   * second affects zero rows, which the caller must treat as "no longer at
+   * the expected prior state" rather than silently succeeding.
+   */
+  async rebindProviderSubject(input: {
+    provider: IdentityProvider;
+    oldProviderSubject: string;
+    newProviderSubject: string;
+    emailDisplay: string;
+    now: number;
+  }): Promise<boolean> {
+    const result = await this.db
+      .prepare(
+        `UPDATE user_identities
+         SET provider_subject = ?3, email_display = ?4, subject_pending = 0, updated_at = ?5
+         WHERE provider = ?1 AND provider_subject = ?2 AND subject_pending = 1`
+      )
+      .bind(
+        input.provider,
+        input.oldProviderSubject,
+        input.newProviderSubject,
+        input.emailDisplay,
+        input.now
+      )
+      .run();
+    return (result.meta.changes ?? 0) > 0;
+  }
+
+  /**
    * Refreshes the provider- and browser-sourced profile basics. V2 has no
    * profile editor, so this is the only path that changes these fields.
    */
@@ -241,11 +311,33 @@ export class UserRepository {
       .run();
   }
 
-  async updateGlobalRole(id: string, globalRole: GlobalRole, now: number): Promise<void> {
-    await this.db
-      .prepare('UPDATE users SET global_role = ?2, updated_at = ?3 WHERE id = ?1')
-      .bind(id, globalRole, now)
-      .run();
+  /**
+   * Changes the global role and revokes every existing session in the same D1
+   * batch, for the same reason `disable`/`recycle` are batched (Codex
+   * M2-QA-03): a role change without an atomic revocation could leave a
+   * demoted admin's pre-change session valid if the separate bump failed.
+   */
+  async updateGlobalRoleAndRevoke(id: string, globalRole: GlobalRole, now: number): Promise<void> {
+    await this.db.batch(this.prepareUpdateGlobalRoleAndRevoke(id, globalRole, now));
+  }
+
+  /**
+   * The two statements `updateGlobalRoleAndRevoke` batches, unexecuted, so a
+   * caller can add its required audit row to the same D1 batch (M2-FQA-04).
+   */
+  prepareUpdateGlobalRoleAndRevoke(
+    id: string,
+    globalRole: GlobalRole,
+    now: number
+  ): D1PreparedStatement[] {
+    return [
+      this.db
+        .prepare('UPDATE users SET global_role = ?2, updated_at = ?3 WHERE id = ?1')
+        .bind(id, globalRole, now),
+      this.db
+        .prepare(`UPDATE users SET auth_version = auth_version + 1, updated_at = ?2 WHERE id = ?1`)
+        .bind(id, now),
+    ];
   }
 
   async touchLastSeen(id: string, now: number): Promise<void> {
@@ -272,39 +364,89 @@ export class UserRepository {
   }
 
   /**
-   * Disables an account without recycling it. `recycled_at` stays null: a
-   * disabled account is not in the recycle bin and has no purge deadline
-   * (M0-D22). Revoking existing sessions is a separate, explicit
-   * `bumpAuthVersion` call by the service so the caller cannot forget it
-   * silently — the state change alone must never be assumed to be enough.
+   * Same mutation as `bumpAuthVersion`, unexecuted and without `RETURNING`, so
+   * a caller can batch it with a required audit row (M2-FQA-04) when it does
+   * not need the new value back — `RETURNING` inside a `D1Database.batch()`
+   * statement is not needed here since the only caller of this variant
+   * (session revocation's audit trail) does not use the returned version.
    */
-  async disable(id: string, now: number): Promise<void> {
-    await this.db
-      .prepare(
-        `UPDATE users SET state = 'disabled', recycled_at = NULL, updated_at = ?2 WHERE id = ?1`
-      )
-      .bind(id, now)
-      .run();
+  prepareBumpAuthVersion(id: string, now: number): D1PreparedStatement {
+    return this.db
+      .prepare(`UPDATE users SET auth_version = auth_version + 1, updated_at = ?2 WHERE id = ?1`)
+      .bind(id, now);
   }
 
-  /** Moves the account into the 30-day recycle bin. */
+  /**
+   * Disables an account without recycling it, and revokes every existing
+   * session in the same D1 batch (Codex M2-QA-03).
+   *
+   * `recycled_at` stays null: a disabled account is not in the recycle bin and
+   * has no purge deadline (M0-D22). The state change and the `auth_version`
+   * bump used to be two separate statements issued by the service; if the
+   * second failed after the first succeeded, the account was disabled but its
+   * pre-disable sessions kept their now-stale-but-still-matching auth version,
+   * so a later restore would silently resurrect them — violating "restore
+   * cannot resurrect an old session." A `D1Database.batch()` either applies
+   * both statements or neither, closing that partial-failure window.
+   */
+  async disable(id: string, now: number): Promise<void> {
+    await this.db.batch(this.prepareDisable(id, now));
+  }
+
+  /**
+   * The two statements `disable` batches, unexecuted, so a caller can add its
+   * required audit row to the same D1 batch (M2-FQA-04).
+   */
+  prepareDisable(id: string, now: number): D1PreparedStatement[] {
+    return [
+      this.db
+        .prepare(
+          `UPDATE users SET state = 'disabled', recycled_at = NULL, updated_at = ?2 WHERE id = ?1`
+        )
+        .bind(id, now),
+      this.db
+        .prepare(`UPDATE users SET auth_version = auth_version + 1, updated_at = ?2 WHERE id = ?1`)
+        .bind(id, now),
+    ];
+  }
+
+  /**
+   * Moves the account into the 30-day recycle bin, and revokes every existing
+   * session in the same D1 batch. See `disable` for why this must be atomic.
+   */
   async recycle(id: string, now: number): Promise<void> {
-    await this.db
-      .prepare(
-        `UPDATE users SET state = 'recycled', recycled_at = ?2, updated_at = ?2 WHERE id = ?1`
-      )
-      .bind(id, now)
-      .run();
+    await this.db.batch(this.prepareRecycle(id, now));
+  }
+
+  /**
+   * The two statements `recycle` batches, unexecuted, so a caller can add its
+   * required audit row to the same D1 batch (M2-FQA-04).
+   */
+  prepareRecycle(id: string, now: number): D1PreparedStatement[] {
+    return [
+      this.db
+        .prepare(
+          `UPDATE users SET state = 'recycled', recycled_at = ?2, updated_at = ?2 WHERE id = ?1`
+        )
+        .bind(id, now),
+      this.db
+        .prepare(`UPDATE users SET auth_version = auth_version + 1, updated_at = ?2 WHERE id = ?1`)
+        .bind(id, now),
+    ];
   }
 
   /** Returns a disabled or recycled account to active use. */
   async restore(id: string, now: number): Promise<void> {
-    await this.db
+    await this.prepareRestore(id, now).run();
+  }
+
+  /** Same statement as `restore`, unexecuted, for batching with its audit row (M2-FQA-04). */
+  prepareRestore(id: string, now: number): D1PreparedStatement {
+    return this.db
       .prepare(
         `UPDATE users SET state = 'active', recycled_at = NULL, updated_at = ?2 WHERE id = ?1`
       )
-      .bind(id, now)
-      .run();
+      .bind(id, now);
   }
 
   /**

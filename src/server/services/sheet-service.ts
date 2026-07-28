@@ -21,6 +21,7 @@ import type {
 import { AppError } from '../errors/app-error';
 import type { Actor, SheetAccessContext } from '../policy';
 import {
+  canAssignOwnershipTo,
   canManageMembership,
   canManageSheetLifecycle,
   canReadSheet,
@@ -28,10 +29,11 @@ import {
   canTransferOwnership,
   denyAsNotFound,
   denyForbidden,
+  isAdmin,
   isEligible,
   resolveAccessLevel,
 } from '../policy';
-import { writeAuditEvent } from './audit';
+import { buildAuditStatement } from './audit';
 import type { ServiceDeps } from './service-context';
 import { idFactory } from './service-context';
 
@@ -49,8 +51,35 @@ export class SheetService {
    * Loads a List and the actor's rights on it, denying as 404 when the actor
    * has no access at all. A caller that has an `AuthorizedSheet` in hand knows
    * the read was permitted; there is no way to obtain one without passing this.
+   *
+   * Two lifecycle rules are enforced here, at the one choke point every public
+   * method routes through, rather than left to each caller to remember
+   * (Codex M2-QA-01):
+   *
+   *   - A recycled List is unreachable through ordinary access. The approved
+   *     lifecycle is "List + everything in it moves and restores as one unit"
+   *     (M0 §4/§Accounts) — a recycled List must behave as gone, not merely
+   *     read-only, until an owner-or-admin restore. `options.allowRecycled`
+   *     exists only for the lifecycle methods (`recycle`/`restore`/`purge`)
+   *     that must be able to reach the List precisely to act on that state.
+   *   - A List owned by a recycled account is unreachable to everyone but an
+   *     Admin. The contract requires a recycled account's Lists to
+   *     "disappear for other members until restore" — owned-but-hidden, not
+   *     ownerless. An Admin's own recovery/administration path still needs to
+   *     reach it, so this rule is waived for Admin, not lifted entirely.
+   *     Deliberately does **not** extend to a merely `disabled` owner
+   *     (Codex M2-RR-01, correcting an over-broad first attempt at this fix):
+   *     `AccountService.disable`'s own contract is that "the account keeps
+   *     owning its Lists" and only *recycling* triggers the disappear-until-
+   *     restore rule; `disabled` blocks the owner's own login but must not
+   *     also cut off their existing Editors/Viewers from a List that still
+   *     exists and is not in any recovery window.
    */
-  async authorize(actor: Actor, sheetId: string): Promise<AuthorizedSheet> {
+  async authorize(
+    actor: Actor,
+    sheetId: string,
+    options?: { allowRecycled?: boolean }
+  ): Promise<AuthorizedSheet> {
     if (!isEligible(actor)) throw denyAsNotFound();
 
     const sheet = await this.deps.repos.sheets.findById(sheetId);
@@ -62,6 +91,15 @@ export class SheetService {
     // A List the actor cannot read at all is reported as absent rather than
     // forbidden: "this List exists but is not yours" is itself information.
     if (!canReadSheet(actor, context)) throw denyAsNotFound();
+
+    if (sheet.state === 'recycled' && !options?.allowRecycled) {
+      throw denyAsNotFound();
+    }
+
+    if (!isAdmin(actor) && context.ownerUserId !== actor.userId) {
+      const owner = await this.deps.repos.users.findById(context.ownerUserId);
+      if (owner === null || owner.state === 'recycled') throw denyAsNotFound();
+    }
 
     return { sheet, context, accessLevel: resolveAccessLevel(actor, context) };
   }
@@ -113,6 +151,11 @@ export class SheetService {
    * refuses it too, but a database error surfacing as a 500 is a worse answer
    * than an explicit 403 — and relying on the trigger alone would mean the API
    * contract depends on a constraint the caller cannot see.
+   *
+   * Also refuses a target that is not active, mirroring `transferOwnership`'s
+   * eligibility check: granting a share to a disabled or recycled account would
+   * sit inert until the account is restored, at which point it would silently
+   * reinstate a share nobody re-approved.
    */
   async grantMembership(
     actor: Actor,
@@ -134,24 +177,36 @@ export class SheetService {
     const target = await this.deps.repos.users.findById(targetUserId);
     if (target === null)
       throw new AppError(404, 'NOT_FOUND', 'The requested resource was not found.');
+    if (target.state !== 'active') {
+      throw new AppError(
+        409,
+        'INELIGIBLE_MEMBER',
+        'A membership can only be granted to an active account.'
+      );
+    }
 
-    const membership = await this.deps.repos.memberships.upsert({
+    const now = this.deps.clock();
+    const membershipInput = {
       sheetId,
       userId: targetUserId,
       role,
       createdByUserId: actor.userId,
-      now: this.deps.clock(),
-    });
+      now,
+    };
+    await this.deps.db.batch([
+      this.deps.repos.memberships.prepareUpsert(membershipInput),
+      buildAuditStatement(this.deps, {
+        actorUserId: actor.userId,
+        action: 'sheet.membership.granted',
+        targetType: 'sheet',
+        targetId: sheetId,
+        // Opaque identity and the granted level only — never the List's name.
+        metadata: { targetUserId, role },
+      }),
+    ]);
 
-    await writeAuditEvent(this.deps, {
-      actorUserId: actor.userId,
-      action: 'sheet.membership.granted',
-      targetType: 'sheet',
-      targetId: sheetId,
-      // Opaque identity and the granted level only — never the List's name.
-      metadata: { targetUserId, role },
-    });
-
+    const membership = await this.deps.repos.memberships.find(sheetId, targetUserId);
+    if (membership === null) throw new Error('Membership upsert did not produce a readable row');
     return membership;
   }
 
@@ -159,16 +214,20 @@ export class SheetService {
     const { context } = await this.authorize(actor, sheetId);
     if (!canManageMembership(actor, context)) throw denyForbidden();
 
-    const removed = await this.deps.repos.memberships.remove(sheetId, targetUserId);
-    if (!removed) throw new AppError(404, 'NOT_FOUND', 'The requested resource was not found.');
+    const existing = await this.deps.repos.memberships.find(sheetId, targetUserId);
+    if (existing === null)
+      throw new AppError(404, 'NOT_FOUND', 'The requested resource was not found.');
 
-    await writeAuditEvent(this.deps, {
-      actorUserId: actor.userId,
-      action: 'sheet.membership.revoked',
-      targetType: 'sheet',
-      targetId: sheetId,
-      metadata: { targetUserId },
-    });
+    await this.deps.db.batch([
+      this.deps.repos.memberships.prepareRemove(sheetId, targetUserId),
+      buildAuditStatement(this.deps, {
+        actorUserId: actor.userId,
+        action: 'sheet.membership.revoked',
+        targetType: 'sheet',
+        targetId: sheetId,
+        metadata: { targetUserId },
+      }),
+    ]);
   }
 
   /**
@@ -178,6 +237,12 @@ export class SheetService {
    * become ownerless, and must never have two owners. The checks are explicit
    * and ordered so the failure reasons are distinguishable:
    *
+   *   - the actor may not name *themselves* the new owner of a List they do not
+   *     already own (M2.5). Ownership carries protected-content visibility, so
+   *     an administrator transferring a List to themselves would convert
+   *     administrative authority into the private-task, private-note, and
+   *     history-value reads M0-D16 denies them. Reassigning to a third party,
+   *     which is what recovery actually needs, is unaffected;
    *   - the new owner must exist and be eligible (transferring to a disabled or
    *     recycled account would produce a List no one can administer);
    *   - transferring to the current owner is a no-op conflict, not a silent
@@ -193,6 +258,11 @@ export class SheetService {
   ): Promise<SheetRecord> {
     const { sheet, context } = await this.authorize(actor, sheetId);
     if (!canTransferOwnership(actor, context)) throw denyForbidden();
+    if (!canAssignOwnershipTo(actor, context, newOwnerUserId)) {
+      throw denyForbidden(
+        'You cannot transfer a List you do not own to yourself. Transfer it to another account.'
+      );
+    }
 
     if (newOwnerUserId === sheet.ownerUserId) {
       throw new AppError(409, 'ALREADY_OWNER', 'That user already owns this List.');
@@ -211,15 +281,17 @@ export class SheetService {
     }
 
     const previousOwnerUserId = sheet.ownerUserId;
-    await this.deps.repos.sheets.transferOwnership(sheetId, newOwnerUserId, this.deps.clock());
-
-    await writeAuditEvent(this.deps, {
-      actorUserId: actor.userId,
-      action: 'sheet.ownership.transferred',
-      targetType: 'sheet',
-      targetId: sheetId,
-      metadata: { previousOwnerUserId, newOwnerUserId },
-    });
+    const now = this.deps.clock();
+    await this.deps.db.batch([
+      ...this.deps.repos.sheets.prepareTransferOwnership(sheetId, newOwnerUserId, now),
+      buildAuditStatement(this.deps, {
+        actorUserId: actor.userId,
+        action: 'sheet.ownership.transferred',
+        targetType: 'sheet',
+        targetId: sheetId,
+        metadata: { previousOwnerUserId, newOwnerUserId },
+      }),
+    ]);
 
     const updated = await this.deps.repos.sheets.findById(sheetId);
     if (updated === null) throw denyAsNotFound();
@@ -231,26 +303,32 @@ export class SheetService {
     const { context } = await this.authorize(actor, sheetId);
     if (!canManageSheetLifecycle(actor, context)) throw denyForbidden();
 
-    await this.deps.repos.sheets.recycle(sheetId, this.deps.clock());
-    await writeAuditEvent(this.deps, {
-      actorUserId: actor.userId,
-      action: 'sheet.recycled',
-      targetType: 'sheet',
-      targetId: sheetId,
-    });
+    const now = this.deps.clock();
+    await this.deps.db.batch([
+      this.deps.repos.sheets.prepareRecycle(sheetId, now),
+      buildAuditStatement(this.deps, {
+        actorUserId: actor.userId,
+        action: 'sheet.recycled',
+        targetType: 'sheet',
+        targetId: sheetId,
+      }),
+    ]);
   }
 
   async restore(actor: Actor, sheetId: string): Promise<void> {
-    const { context } = await this.authorize(actor, sheetId);
+    const { context } = await this.authorize(actor, sheetId, { allowRecycled: true });
     if (!canManageSheetLifecycle(actor, context)) throw denyForbidden();
 
-    await this.deps.repos.sheets.restore(sheetId, this.deps.clock());
-    await writeAuditEvent(this.deps, {
-      actorUserId: actor.userId,
-      action: 'sheet.restored',
-      targetType: 'sheet',
-      targetId: sheetId,
-    });
+    const now = this.deps.clock();
+    await this.deps.db.batch([
+      this.deps.repos.sheets.prepareRestore(sheetId, now),
+      buildAuditStatement(this.deps, {
+        actorUserId: actor.userId,
+        action: 'sheet.restored',
+        targetType: 'sheet',
+        targetId: sheetId,
+      }),
+    ]);
   }
 
   /**
@@ -261,7 +339,7 @@ export class SheetService {
    * remove the 30-day recovery window the contract promises.
    */
   async purge(actor: Actor, sheetId: string): Promise<void> {
-    const { sheet, context } = await this.authorize(actor, sheetId);
+    const { sheet, context } = await this.authorize(actor, sheetId, { allowRecycled: true });
     if (!canManageSheetLifecycle(actor, context)) throw denyForbidden();
 
     if (sheet.state !== 'recycled') {
@@ -272,13 +350,15 @@ export class SheetService {
       );
     }
 
-    await this.deps.repos.sheets.deletePermanently(sheetId);
-    await writeAuditEvent(this.deps, {
-      actorUserId: actor.userId,
-      action: 'sheet.purged',
-      targetType: 'sheet',
-      targetId: sheetId,
-    });
+    await this.deps.db.batch([
+      this.deps.repos.sheets.prepareDeletePermanently(sheetId),
+      buildAuditStatement(this.deps, {
+        actorUserId: actor.userId,
+        action: 'sheet.purged',
+        targetType: 'sheet',
+        targetId: sheetId,
+      }),
+    ]);
   }
 }
 

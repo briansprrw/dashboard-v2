@@ -56,11 +56,64 @@ export function canReadTaskNotes(
  * Editor on the List: they are not permitted to know it exists, and a write
  * path that "fails differently" for a private task would disclose it. Editors
  * retain full write rights on every non-private task.
+ *
+ * This checks the task's *current* stored state only. A caller that is about
+ * to persist a different `isPrivate` value — create, or a full-replacement
+ * update — must additionally consult `canWriteTaskAsPrivate` for the state it
+ * is about to write, not only the state that exists now (M2-FQA-03): a task
+ * that is public today but would become private after this write is not
+ * writable by a non-owner either, even though this function alone would
+ * allow it.
  */
 export function canWriteTask(actor: Actor, sheet: SheetAccessContext, task: TaskRecord): boolean {
   if (!isEligible(actor)) return false;
   if (task.isPrivate) return isOwner(actor, sheet);
   return canWriteTasks(actor, sheet);
+}
+
+/**
+ * May the actor create or leave a task in the given `isPrivate` state?
+ *
+ * Only the List owner may produce owner-only content (M0 §3, M2-D7's "admin
+ * never gets protected-content rights" applied symmetrically to writes, not
+ * only reads). A non-private target state needs only the ordinary write
+ * right, so this narrows `canWriteTasks`/`canWriteTask` rather than
+ * replacing them — a caller must still pass those too.
+ */
+export function canWriteTaskAsPrivate(
+  actor: Actor,
+  sheet: SheetAccessContext,
+  targetIsPrivate: boolean
+): boolean {
+  if (!isEligible(actor)) return false;
+  if (!targetIsPrivate) return true;
+  return isOwner(actor, sheet);
+}
+
+/**
+ * May the actor write this task's *note*, given both its currently stored
+ * `notesPrivate` and the `notesPrivate` value this write would leave it at?
+ *
+ * The parallel rule to `canWriteTask`+`canWriteTaskAsPrivate`, for the
+ * independent `notesPrivate` axis (M2-FQA-RR-02). Both sides matter, the same
+ * way they do for `isPrivate`: a non-owner must not be able to touch a note
+ * that is *already* private — they cannot read it, so they cannot safely
+ * overwrite it either — and must not be able to make an ordinary note
+ * private, clear/un-private one, or otherwise change a note while either the
+ * stored or the requested state is private. `canWriteTaskAsPrivate` alone
+ * left this open: a task can stay `isPrivate: false` (passing that check)
+ * while its note is `notesPrivate: true`, so the note axis needs its own gate
+ * rather than being folded into the task one.
+ */
+export function canWriteTaskNotesAsPrivate(
+  actor: Actor,
+  sheet: SheetAccessContext,
+  currentNotesPrivate: boolean,
+  targetNotesPrivate: boolean
+): boolean {
+  if (!isEligible(actor)) return false;
+  if (!currentNotesPrivate && !targetNotesPrivate) return true;
+  return isOwner(actor, sheet);
 }
 
 /**

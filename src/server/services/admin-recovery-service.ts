@@ -20,8 +20,9 @@ import type {
 import { AppError } from '../errors/app-error';
 import type { Actor } from '../policy';
 import { canPerformOpaqueRecovery, denyForbidden } from '../policy';
-import { writeAuditEvent } from './audit';
+import { buildAuditStatement } from './audit';
 import type { ServiceDeps } from './service-context';
+import { idFactory } from './service-context';
 
 /** Opaque lifecycle state plus a history *count* — never history contents. */
 export interface TaskRecoveryView {
@@ -77,9 +78,22 @@ export class AdminRecoveryService {
    * Restores a recycled task by identity alone.
    *
    * Returns the opaque recovery state rather than the task, so even the success
-   * response of an administrative action carries no content.
+   * response of an administrative action carries no content. Returns the same
+   * shape as `getTaskRecoveryState` (including the real history count) so the
+   * restore response is not a degraded view of the GET response.
+   *
+   * Appends the same allowlisted `restored` history event the owner's own
+   * restore path writes (M2-FQA-05): omitting it left owner-visible history
+   * incomplete for a task recovered through the administrative surface, even
+   * though the task itself was genuinely restored. No content is added to
+   * that event — same `changesJson: '{}'` the ordinary path writes — so the
+   * administrative content boundary is unaffected.
+   *
+   * The restore, its history entry, and its audit row commit in one D1 batch
+   * (M2-FQA-04): required audit/history evidence must not be separable from
+   * the mutation it documents by a statement that can fail on its own.
    */
-  async restoreTask(actor: Actor, taskId: string): Promise<TaskRecoveryRecord> {
+  async restoreTask(actor: Actor, taskId: string): Promise<TaskRecoveryView> {
     this.requireAdmin(actor);
 
     const existing = await this.deps.repos.tasks.findRecoveryStateById(taskId);
@@ -91,21 +105,31 @@ export class AdminRecoveryService {
     }
 
     const now = this.deps.clock();
-    await this.deps.repos.tasks.restore(taskId, actor.userId, now);
-
-    await writeAuditEvent(this.deps, {
-      actorUserId: actor.userId,
-      action: 'task.restored.admin',
-      targetType: 'task',
-      targetId: taskId,
-      metadata: { sheetId: existing.sheetId },
-    });
+    await this.deps.db.batch([
+      this.deps.repos.tasks.prepareRestore(taskId, actor.userId, now),
+      this.deps.repos.taskEvents.prepareAppend({
+        id: idFactory(this.deps)(),
+        taskId,
+        actorUserId: actor.userId,
+        eventType: 'restored',
+        changesJson: '{}',
+        now,
+      }),
+      buildAuditStatement(this.deps, {
+        actorUserId: actor.userId,
+        action: 'task.restored.admin',
+        targetType: 'task',
+        targetId: taskId,
+        metadata: { sheetId: existing.sheetId },
+      }),
+    ]);
 
     const restored = await this.deps.repos.tasks.findRecoveryStateById(taskId);
     if (restored === null) {
       throw new AppError(404, 'NOT_FOUND', 'The requested resource was not found.');
     }
-    return restored;
+    const historyEventCount = await this.deps.repos.taskEvents.countForTask(taskId);
+    return { task: restored, historyEventCount };
   }
 
   /**
@@ -131,15 +155,16 @@ export class AdminRecoveryService {
       );
     }
 
-    await this.deps.repos.tasks.deletePermanently(taskId);
-
-    await writeAuditEvent(this.deps, {
-      actorUserId: actor.userId,
-      action: 'task.purged.admin',
-      targetType: 'task',
-      targetId: taskId,
-      metadata: { sheetId: existing.sheetId },
-    });
+    await this.deps.db.batch([
+      this.deps.repos.tasks.prepareDeletePermanently(taskId),
+      buildAuditStatement(this.deps, {
+        actorUserId: actor.userId,
+        action: 'task.purged.admin',
+        targetType: 'task',
+        targetId: taskId,
+        metadata: { sheetId: existing.sheetId },
+      }),
+    ]);
   }
 
   async restoreSheet(actor: Actor, sheetId: string): Promise<SheetRecoveryRecord> {
@@ -153,13 +178,15 @@ export class AdminRecoveryService {
       throw new AppError(409, 'NOT_RECYCLED', 'That item is not in the recycle bin.');
     }
 
-    await this.deps.repos.sheets.restore(sheetId, this.deps.clock());
-    await writeAuditEvent(this.deps, {
-      actorUserId: actor.userId,
-      action: 'sheet.restored',
-      targetType: 'sheet',
-      targetId: sheetId,
-    });
+    await this.deps.db.batch([
+      this.deps.repos.sheets.prepareRestore(sheetId, this.deps.clock()),
+      buildAuditStatement(this.deps, {
+        actorUserId: actor.userId,
+        action: 'sheet.restored',
+        targetType: 'sheet',
+        targetId: sheetId,
+      }),
+    ]);
 
     const restored = await this.deps.repos.sheets.findRecoveryStateById(sheetId);
     if (restored === null) {

@@ -113,6 +113,7 @@ describe('user_identities constraints', () => {
         userId: second.id,
         emailNormalized: `${first.id}@example.invalid`,
         emailDisplay: `${first.id}@example.invalid`,
+        subjectPending: false,
         now: T0,
       })
     ).rejects.toThrow();
@@ -126,6 +127,7 @@ describe('user_identities constraints', () => {
         userId: crypto.randomUUID(),
         emailNormalized: `${crypto.randomUUID()}@example.invalid`,
         emailDisplay: 'nobody@example.invalid',
+        subjectPending: false,
         now: T0,
       })
     ).rejects.toThrow();

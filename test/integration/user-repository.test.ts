@@ -117,6 +117,19 @@ describe('UserRepository — account lifecycle', () => {
     expect(disabled?.recycledAt).toBeNull();
   });
 
+  it('bumps auth_version in the same batch as disable (Codex M2-QA-03)', async () => {
+    const user = await makeUser();
+    expect(user.authVersion).toBe(1);
+
+    await users().disable(user.id, T0 + 1000);
+
+    // A single `disable` call must leave no partial-failure window between the
+    // state change and the revocation: both land, or neither does, in one D1
+    // batch. If only the state change had landed, a restore afterward would
+    // leave the account's pre-disable session still matching its auth_version.
+    expect((await users().findById(user.id))?.authVersion).toBe(2);
+  });
+
   it('recycles an account with a recovery timestamp, then restores it', async () => {
     const user = await makeUser();
 
@@ -129,6 +142,23 @@ describe('UserRepository — account lifecycle', () => {
     const restored = await users().findById(user.id);
     expect(restored?.state).toBe('active');
     expect(restored?.recycledAt).toBeNull();
+  });
+
+  it('bumps auth_version in the same batch as recycle, and restore does not resurrect it (Codex M2-QA-03)', async () => {
+    const user = await makeUser();
+    expect(user.authVersion).toBe(1);
+
+    await users().recycle(user.id, T0 + 1000);
+    expect((await users().findById(user.id))?.authVersion).toBe(2);
+
+    // Restore intentionally does not bump auth_version again (a just-created
+    // post-restore sign-in should not be pre-emptively invalidated), but the
+    // pre-recycle session's stored auth_version (1) must never match again —
+    // proving the recycle-time bump, not a later one, is what keeps it dead.
+    await users().restore(user.id, T0 + 2000);
+    const restored = await users().findById(user.id);
+    expect(restored?.authVersion).toBe(2);
+    expect(restored?.authVersion).not.toBe(1);
   });
 
   it('keeps owned Lists and memberships through recycle and restore', async () => {
@@ -166,12 +196,14 @@ describe('UserRepository — account lifecycle', () => {
     expect(seen?.updatedAt).toBe(T0);
   });
 
-  it('changes the global role', async () => {
+  it('changes the global role and bumps the auth version atomically', async () => {
     const user = await makeUser();
 
-    await users().updateGlobalRole(user.id, 'admin', T0 + 1000);
+    await users().updateGlobalRoleAndRevoke(user.id, 'admin', T0 + 1000);
 
-    expect((await users().findById(user.id))?.globalRole).toBe('admin');
+    const updated = await users().findById(user.id);
+    expect(updated?.globalRole).toBe('admin');
+    expect(updated?.authVersion).toBe(2);
   });
 });
 

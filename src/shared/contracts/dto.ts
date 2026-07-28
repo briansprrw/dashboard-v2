@@ -85,6 +85,26 @@ export function toTaskDto(task: TaskRecord, canReadNotes: boolean): TaskDto {
   };
 }
 
+export interface TaskMoveResultDto {
+  moved: true;
+  taskId: string;
+  destinationSheetId: string;
+}
+
+/**
+ * The opaque success response for a task move, when the acting user may not
+ * read the moved task at its new location — the confirmed-relinquish case
+ * (M2-FQA-RR-03). `toTaskDto` always returns the full task shape (name,
+ * status, priority, dates, privacy flags), redacting only `notes`; that is
+ * wrong once the actor has lost `canReadTask` entirely, since the task
+ * itself is now owner-only content they gave up. This carries no task field
+ * at all — only confirmation that the move happened and where it went, both
+ * of which the actor already knew before confirming.
+ */
+export function toTaskMoveResultDto(taskId: string, destinationSheetId: string): TaskMoveResultDto {
+  return { moved: true, taskId, destinationSheetId };
+}
+
 /**
  * Stored JSON that should be an object. A malformed value yields `{}` rather
  * than throwing: a corrupt history or audit row must not make an entire

@@ -68,6 +68,40 @@ describe('unknown fields are rejected, not ignored', () => {
       ValidationError
     );
   });
+});
+
+// M2-FQA-02: a full task replacement (PUT) must state its complete privacy
+// intent explicitly. Omission previously defaulted both flags to `false`,
+// which would silently declassify an existing private task or note on any
+// client payload that forgot — or was written before — either field.
+describe('privacy flags are required, not defaulted (M2-FQA-02)', () => {
+  function withoutField(field: 'isPrivate' | 'notesPrivate'): Record<string, unknown> {
+    const body: Record<string, unknown> = { ...VALID_TASK_BODY };
+    delete body[field];
+    return body;
+  }
+
+  it('rejects a task write that omits isPrivate', () => {
+    expect(() => parseTaskFields(withoutField('isPrivate'))).toThrow(ValidationError);
+  });
+
+  it('rejects a task write that omits notesPrivate', () => {
+    expect(() => parseTaskFields(withoutField('notesPrivate'))).toThrow(ValidationError);
+  });
+
+  it('names isPrivate as the offending field when omitted', () => {
+    try {
+      parseTaskFields(withoutField('isPrivate'));
+      expect.unreachable('should have thrown');
+    } catch (error) {
+      expect((error as ValidationError).fields).toHaveProperty('isPrivate');
+    }
+  });
+
+  it('still accepts an explicit isPrivate/notesPrivate of either value', () => {
+    expect(parseTaskFields({ ...VALID_TASK_BODY, isPrivate: true }).isPrivate).toBe(true);
+    expect(parseTaskFields({ ...VALID_TASK_BODY, notesPrivate: true }).notesPrivate).toBe(true);
+  });
 
   it('rejects an unexpected field on a membership grant', () => {
     expect(() =>

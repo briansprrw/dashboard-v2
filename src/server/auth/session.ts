@@ -14,6 +14,19 @@
 //              long-lived session still dies on the original schedule.
 //
 // The stored key is a hash of the token: a KV dump yields no usable cookie.
+//
+// "Immediate" revocation (destroy on rejection, below) is best-effort, not a
+// strict guarantee, because it runs on Workers KV (Codex M2-QA-02). KV
+// documents cross-location write propagation that can take up to 60 seconds,
+// so a `destroy` or a revoking write from one location is not instantly
+// visible from another. `AuthService.resolveSession`'s D1-backed
+// `auth_version` check is the primary revocation mechanism and is strongly
+// consistent; KV's role here is opaque storage for the session record itself,
+// not the source of the revocation guarantee. Brian reviewed this and
+// approved keeping sessions in KV and accepting the residual cross-location
+// race as a documented, bounded risk (M2-QA-02-DECISION in the M2 milestone
+// document's Decision Log) rather than adding new strongly-consistent
+// infrastructure.
 
 import { generateToken, hashToken } from './tokens';
 

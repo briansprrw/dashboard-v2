@@ -39,7 +39,7 @@ npx wrangler deploy --dry-run
 curl https://dash2-preview.<account-subdomain>.workers.dev/api/v1/health
 ```
 
-Expect `{"status":"ok","version":"...","schemaVersion":1,"expectedSchemaVersion":1,"timestamp":"..."}` with HTTP `200`. A `503` with `"status":"degraded"` means the applied D1 schema version doesn't match what the deployed code expects — check whether a migration was deployed without a matching `wrangler d1 migrations apply` against the preview database (see below).
+Expect `{"status":"ok","version":"...","schemaVersion":N,"expectedSchemaVersion":N,"timestamp":"..."}` with HTTP `200`, where `N` is `EXPECTED_SCHEMA_VERSION` in `src/shared/constants/schema.ts` (currently `3`, set by the M2-FQA-RR-01 correction's `0004_identity_subject_pending.sql`). A `503` with `"status":"degraded"` means the applied D1 schema version doesn't match what the deployed code expects — check whether a migration was deployed without a matching `wrangler d1 migrations apply` against the preview database (see below).
 
 ```sh
 npx wrangler deployments list --env preview
@@ -56,6 +56,16 @@ npx wrangler d1 migrations apply DASH2_DB --env preview --remote
 ```
 
 `--remote` is required — without it, this would target the _local_ simulated database instead of the real `dash2-preview` D1 database. This is a real mutation against the real preview database and should be run deliberately, not blindly automated, until a milestone specifically designs an automated migration-on-deploy step.
+
+### Writing a migration that survives a remote apply
+
+**A migration file that defines a trigger must contain nothing else, apart from its single `INSERT INTO schema_version` bookkeeping row.**
+
+Wrangler's `--remote` path splits a migration file on `;` and posts each fragment to D1's HTTP API separately. A trigger body contains its own `;` terminators, so a trigger sitting alongside other statements gets cut in half and the whole migration fails with `incomplete input: SQLITE_ERROR [code: 7500]`.
+
+This is genuinely dangerous because **local tooling does not reproduce it.** `wrangler d1 migrations apply --local` and the workerd/Miniflare test harness both execute the file through a path that handles trigger bodies correctly. A migration written this way applies cleanly to an empty local database, passes every integration test, and then fails on first contact with the real preview database — which is exactly what happened on 2026-07-25 with `0002_domain_schema.sql`. The fix was to split its three ownership triggers into `0003_ownership_triggers.sql`.
+
+`test/unit/migration-remote-safety.test.ts` enforces this rule against the real migration files, so CI fails before a deploy rather than at the moment someone runs a remote apply. That guard is itself tested against deliberately-bad SQL, because a guard only ever exercised on known-good input cannot be distinguished from one that always passes.
 
 ## Rollback
 

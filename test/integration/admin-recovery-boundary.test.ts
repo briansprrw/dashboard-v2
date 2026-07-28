@@ -12,6 +12,7 @@ import {
 } from '../../src/shared/contracts/dto';
 import {
   auditEvents,
+  db,
   makeSheet,
   makeTask,
   makeUser,
@@ -51,6 +52,7 @@ function deps(): ServiceDeps {
       taskEvents: taskEvents(),
       auditEvents: auditEvents(),
     },
+    db: db(),
     clock: () => T0,
     requestId: 'admin-recovery-test',
   };
@@ -160,11 +162,29 @@ describe('administrative recovery actually works on opaque identity', () => {
     await taskService.recycle(ownerActor, task.id);
 
     const restored = await recovery.restoreTask(adminActor, task.id);
-    expect(restored.recycledAt).toBeNull();
+    expect(restored.task.recycledAt).toBeNull();
 
     // Confirmed independently through storage.
     const stored = await tasks().findById(task.id);
     expect(stored?.recycledAt).toBeNull();
+  });
+
+  // M2-FQA-05: the owner's own restore path appends a `restored` history
+  // event; the opaque administrative path previously did not, leaving
+  // owner-visible history incomplete for a task recovered this way even
+  // though the task itself was genuinely restored.
+  it('appends a restored history event on administrative restore, same as the owner path', async () => {
+    const { task, ownerActor, adminActor, recovery, taskService } = await setup();
+    await taskService.recycle(ownerActor, task.id);
+    const countBeforeRestore = await taskEvents().countForTask(task.id);
+
+    const restored = await recovery.restoreTask(adminActor, task.id);
+
+    const events = await taskEvents().listForTask(task.id);
+    expect(events).toHaveLength(countBeforeRestore + 1);
+    expect(events.map((e) => e.eventType)).toContain('restored');
+    // The opaque DTO's count must reflect the same events, and carry no content.
+    expect(restored.historyEventCount).toBe(events.length);
   });
 
   it('purges a recycled private task by id alone, and its history with it', async () => {

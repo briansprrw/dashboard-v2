@@ -51,7 +51,7 @@ export function buildServices(
   clock: Clock = systemClock
 ): AppServices {
   const repos = buildRepositories(env);
-  const deps: ServiceDeps = { repos, clock, requestId };
+  const deps: ServiceDeps = { repos, db: env.DASH2_DB, clock, requestId };
 
   const sheets = new SheetService(deps);
   return {

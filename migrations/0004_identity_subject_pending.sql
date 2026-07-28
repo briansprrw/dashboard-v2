@@ -1,0 +1,46 @@
+-- M2 correction (M2-FQA-RR-01, re-review-flagged as M2-FQA-RR2-01) — adds the
+-- explicit pending/permanent state a migrated identity's provider_subject
+-- needs.
+--
+-- WHY THIS IS A NEW MIGRATION, NOT AN EDIT TO 0002
+--
+-- The first version of this fix edited 0002_domain_schema.sql in place. That
+-- was wrong: 0002 was already applied to the real dash2-preview D1 (recorded
+-- under M2-R9/M2-R3), and D1 tracks applied migrations by filename, not
+-- content — editing an already-recorded file does not schedule it to run
+-- again. A database that already has 0002 applied would never receive the
+-- column, and the corrected UserRepository code selects/binds/updates
+-- subject_pending unconditionally, so a deploy against that database would
+-- fail on a missing-column SQL error the first time an identity row is
+-- touched. Append-only migration history is the fix; this file is that
+-- migration.
+--
+-- WHAT IT DOES
+--
+-- Before a real Google sign-in binds an account, `provider_subject` can only
+-- hold a placeholder (the column is NOT NULL and part of the primary key —
+-- there is no way to represent "not yet verified" any other way). Without an
+-- explicit flag, nothing distinguished a still-pending placeholder from a
+-- permanently bound real subject, so a second differing subject presented for
+-- the same email could silently rebind an already-real identity to a
+-- different person (M2-FQA-RR-01). `subject_pending` makes that distinction
+-- explicit: true only for a not-yet-bound placeholder row; the first real
+-- bind flips it to false in the same statement that rewrites
+-- provider_subject, and no later rebind can ever match a row once it is
+-- false.
+--
+-- Every row that already exists when this migration runs was created by an
+-- ordinary sign-in through the pre-correction code path, which only ever
+-- wrote a genuinely bound (never a placeholder) subject — this repository has
+-- no migrated-user importer yet (M6), so no placeholder row can exist in any
+-- environment before this migration runs. DEFAULT 0 is therefore correct for
+-- every pre-existing row, not merely a safe guess.
+ALTER TABLE user_identities
+  ADD COLUMN subject_pending INTEGER NOT NULL DEFAULT 0 CHECK (subject_pending IN (0, 1));
+
+--------------------------------------------------------------------------------
+-- schema version
+--------------------------------------------------------------------------------
+-- Must stay in step with EXPECTED_SCHEMA_VERSION in
+-- src/shared/constants/schema.ts, which /api/v1/health compares against.
+INSERT INTO schema_version (version, applied_at) VALUES (3, unixepoch());

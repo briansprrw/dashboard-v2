@@ -49,8 +49,8 @@ adminRoutes.get('/tasks/:taskId/history', async (c) => {
 adminRoutes.post('/tasks/:taskId/restore', async (c) => {
   const taskId = requireId(c.req.param('taskId'), 'taskId');
   const services = buildServices(c.env, c.get('requestId'));
-  const task = await services.adminRecovery.restoreTask(c.get('actor'), taskId);
-  return c.json({ task: toTaskRecoveryDto({ task, historyEventCount: 0 }) });
+  const view = await services.adminRecovery.restoreTask(c.get('actor'), taskId);
+  return c.json({ task: toTaskRecoveryDto(view) });
 });
 
 adminRoutes.delete('/tasks/:taskId', async (c) => {

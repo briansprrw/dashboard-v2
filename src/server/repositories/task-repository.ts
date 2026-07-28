@@ -146,11 +146,20 @@ export class TaskRepository {
   constructor(private readonly db: D1Database) {}
 
   async create(input: CreateTaskInput): Promise<TaskRecord> {
+    await this.prepareCreate(input).run();
+
+    const created = await this.findById(input.id);
+    if (created === null) throw new Error('Task insert did not produce a readable row');
+    return created;
+  }
+
+  /** Same statement as `create`, unexecuted, for batching with its history row (M2-FQA-04). */
+  prepareCreate(input: CreateTaskInput): D1PreparedStatement {
     // Derived, never supplied: a closed status implies a close time and an open
     // status implies none.
     const closedAt = isClosedStatus(input.status) ? input.now : null;
 
-    await this.db
+    return this.db
       .prepare(
         `INSERT INTO tasks (id, sheet_id, name, status, priority, due_date, notes,
                             is_private, notes_private, emoji_flags_json, sort_key,
@@ -174,12 +183,7 @@ export class TaskRepository {
         input.now,
         closedAt,
         input.legacySourceId
-      )
-      .run();
-
-    const created = await this.findById(input.id);
-    if (created === null) throw new Error('Task insert did not produce a readable row');
-    return created;
+      );
   }
 
   async findById(id: string): Promise<TaskRecord | null> {
@@ -246,7 +250,17 @@ export class TaskRepository {
    * rewrite an earlier close time on an unrelated edit.
    */
   async update(id: string, input: UpdateTaskInput): Promise<TaskRecord | null> {
-    await this.db
+    await this.prepareUpdate(id, input).run();
+    return this.findById(id);
+  }
+
+  /**
+   * Same statement as `update`, unexecuted, so a caller can batch it with a
+   * required history/audit insert (M2-FQA-04: the mutation and its required
+   * evidence must commit as one D1 operation, not two).
+   */
+  prepareUpdate(id: string, input: UpdateTaskInput): D1PreparedStatement {
+    return this.db
       .prepare(
         `UPDATE tasks
          SET name = ?2, status = ?3, priority = ?4, due_date = ?5, notes = ?6,
@@ -270,10 +284,7 @@ export class TaskRepository {
         input.emojiFlagsJson,
         input.updatedByUserId,
         input.now
-      )
-      .run();
-
-    return this.findById(id);
+      );
   }
 
   /**
@@ -286,32 +297,49 @@ export class TaskRepository {
     actorUserId: string | null,
     now: number
   ): Promise<void> {
-    await this.db
+    await this.prepareMove(id, targetSheetId, actorUserId, now).run();
+  }
+
+  /** Same statement as `move`, unexecuted, for batching with its history row. */
+  prepareMove(
+    id: string,
+    targetSheetId: string,
+    actorUserId: string | null,
+    now: number
+  ): D1PreparedStatement {
+    return this.db
       .prepare(
         'UPDATE tasks SET sheet_id = ?2, updated_by_user_id = ?3, updated_at = ?4 WHERE id = ?1'
       )
-      .bind(id, targetSheetId, actorUserId, now)
-      .run();
+      .bind(id, targetSheetId, actorUserId, now);
   }
 
   /** Sends the task to the recycle bin. The row and its history are preserved. */
   async recycle(id: string, actorUserId: string | null, now: number): Promise<void> {
-    await this.db
+    await this.prepareRecycle(id, actorUserId, now).run();
+  }
+
+  /** Same statement as `recycle`, unexecuted, for batching with its history row. */
+  prepareRecycle(id: string, actorUserId: string | null, now: number): D1PreparedStatement {
+    return this.db
       .prepare(
         'UPDATE tasks SET recycled_at = ?2, updated_by_user_id = ?3, updated_at = ?2 WHERE id = ?1'
       )
-      .bind(id, now, actorUserId)
-      .run();
+      .bind(id, now, actorUserId);
   }
 
   async restore(id: string, actorUserId: string | null, now: number): Promise<void> {
-    await this.db
+    await this.prepareRestore(id, actorUserId, now).run();
+  }
+
+  /** Same statement as `restore`, unexecuted, for batching with its history/audit rows. */
+  prepareRestore(id: string, actorUserId: string | null, now: number): D1PreparedStatement {
+    return this.db
       .prepare(
         `UPDATE tasks SET recycled_at = NULL, updated_by_user_id = ?2, updated_at = ?3
          WHERE id = ?1`
       )
-      .bind(id, actorUserId, now)
-      .run();
+      .bind(id, actorUserId, now);
   }
 
   /**
@@ -321,8 +349,18 @@ export class TaskRepository {
    * caller can distinguish "purged" from "already gone" without reading content.
    */
   async deletePermanently(id: string): Promise<boolean> {
-    const result = await this.db.prepare('DELETE FROM tasks WHERE id = ?1').bind(id).run();
+    const result = await this.prepareDeletePermanently(id).run();
     return (result.meta.changes ?? 0) > 0;
+  }
+
+  /**
+   * Same statement as `deletePermanently`, unexecuted, for batching with an
+   * admin audit row (M2-FQA-04). A batched delete's changed-row count is still
+   * available from the corresponding entry in `D1Database.batch()`'s returned
+   * `D1Result[]`.
+   */
+  prepareDeletePermanently(id: string): D1PreparedStatement {
+    return this.db.prepare('DELETE FROM tasks WHERE id = ?1').bind(id);
   }
 
   /**

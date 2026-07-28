@@ -57,12 +57,30 @@ export interface WriteAuditInput {
  * truncated audit record is a misleading one.
  */
 export async function writeAuditEvent(deps: ServiceDeps, input: WriteAuditInput): Promise<void> {
+  await deps.repos.auditEvents.prepareAppend(buildAuditRecord(deps, input)).run();
+}
+
+/**
+ * Same validation and serialisation as `writeAuditEvent`, but returns an
+ * unexecuted statement instead of running it (M2-FQA-04): a required audit row
+ * must commit in the same D1 batch as the mutation it documents, so a caller
+ * that needs atomicity prepares this and batches it alongside the mutating
+ * statement rather than awaiting a separate write.
+ */
+export function buildAuditStatement(
+  deps: ServiceDeps,
+  input: WriteAuditInput
+): D1PreparedStatement {
+  return deps.repos.auditEvents.prepareAppend(buildAuditRecord(deps, input));
+}
+
+function buildAuditRecord(deps: ServiceDeps, input: WriteAuditInput): AppendAuditEventInput {
   const metadataJson = JSON.stringify(input.metadata ?? {});
   if (metadataJson.length > LIMITS.auditMetadataJson.max) {
     throw new Error('Audit metadata exceeds the permitted length');
   }
 
-  const record: AppendAuditEventInput = {
+  return {
     id: idFactory(deps)(),
     actorUserId: input.actorUserId,
     action: input.action,
@@ -72,6 +90,4 @@ export async function writeAuditEvent(deps: ServiceDeps, input: WriteAuditInput)
     requestId: deps.requestId ?? null,
     now: deps.clock(),
   };
-
-  await deps.repos.auditEvents.append(record);
 }

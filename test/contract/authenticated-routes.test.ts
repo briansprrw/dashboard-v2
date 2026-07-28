@@ -101,6 +101,16 @@ describe('every protected route requires authentication', () => {
     expect(res.status).toBe(200);
   });
 
+  it('reaches sign-in initiation (past the rate-limit check) even when OAuth is unconfigured', async () => {
+    // The mock KV's `get` always returns null, so this cannot exercise the
+    // rate-limit-exceeded path (see the real-KV tests in
+    // test/integration/auth-lifecycle.test.ts for that) — it only proves the
+    // check added for Codex M2-QA-04 does not block an ordinary request before
+    // reaching the existing 503 AUTH_NOT_CONFIGURED behavior.
+    const res = await app.request('http://localhost/api/v1/auth/start', {}, createMockEnv());
+    expect(res.status).toBe(503);
+  });
+
   it('does not leak configuration detail in the 401 body', async () => {
     const res = await request('GET', '/api/v1/sheets');
     const text = await res.text();

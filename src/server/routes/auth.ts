@@ -14,6 +14,7 @@ import { parseProfileBootstrap } from '../../shared/contracts/requests';
 import { buildAuthService, buildRepositories, buildSessionResolver } from '../app-context';
 import { AuthenticationFailure, sanitizeRedirectPath } from '../auth/auth-service';
 import { buildSessionClearCookie, buildSessionCookie, readSessionCookie } from '../auth/cookies';
+import { checkRateLimit } from '../auth/rate-limit';
 import { SESSION_SLIDING_TTL_MS } from '../auth/session';
 import { cookieSecureFrom, type AppEnv } from '../env';
 import { readJsonBody } from '../http/request-body';
@@ -27,12 +28,39 @@ export const authRoutes = new Hono<AppEnv>();
 const SIGN_IN_ERROR_PATH = '/signed-out?error=1';
 
 /**
+ * Bound on sign-in *initiations* from one source per window (Codex M2-QA-04).
+ * `/start` is unauthenticated and writes a fresh OAuth-state KV record on
+ * every request, so it needs its own control rather than relying on
+ * `authenticate` or `originCheck`, neither of which applies here. Generous
+ * enough that no plausible legitimate retry sequence (a user bouncing back
+ * to sign-in, a few tabs) is affected; see `rate-limit.ts` for why this is a
+ * best-effort KV counter rather than a precise quota.
+ */
+const SIGN_IN_START_RATE_LIMIT = { limit: 20, windowSeconds: 60 };
+
+/**
  * Begins sign-in. Responds with a redirect to the provider.
  *
  * `redirect` is sanitised to a same-origin path before storage, so the callback
  * cannot be turned into an open redirect by a crafted start URL.
  */
 authRoutes.get('/start', async (c) => {
+  // Cloudflare sets this on every request reaching the Worker; a request
+  // lacking it (only possible outside Cloudflare's network, e.g. local dev
+  // without the header simulated) shares one bucket rather than bypassing the
+  // limit entirely.
+  const clientKey = c.req.header('CF-Connecting-IP') ?? 'unknown';
+  const { allowed } = await checkRateLimit(
+    c.env.DASH2_SESSIONS,
+    clientKey,
+    SIGN_IN_START_RATE_LIMIT
+  );
+  if (!allowed) {
+    // Same generic redirect as every other sign-in failure: a rate-limited
+    // caller must not learn anything a well-behaved one couldn't.
+    return c.redirect(SIGN_IN_ERROR_PATH, 302);
+  }
+
   const auth = buildAuthService(c.env);
   const { authorizationUrl } = await auth.startSignIn(c.req.query('redirect') ?? null);
   return c.redirect(authorizationUrl, 302);

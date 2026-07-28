@@ -54,18 +54,22 @@ export class MembershipRepository {
    * role change — the grant is the same grant, at a new level.
    */
   async upsert(input: UpsertMembershipInput): Promise<SheetMembershipRecord> {
-    await this.db
+    await this.prepareUpsert(input).run();
+
+    const saved = await this.find(input.sheetId, input.userId);
+    if (saved === null) throw new Error('Membership upsert did not produce a readable row');
+    return saved;
+  }
+
+  /** Same statement as `upsert`, unexecuted, for batching with its audit row (M2-FQA-04). */
+  prepareUpsert(input: UpsertMembershipInput): D1PreparedStatement {
+    return this.db
       .prepare(
         `INSERT INTO sheet_memberships (sheet_id, user_id, role, created_at, created_by_user_id)
          VALUES (?1, ?2, ?3, ?4, ?5)
          ON CONFLICT (sheet_id, user_id) DO UPDATE SET role = excluded.role`
       )
-      .bind(input.sheetId, input.userId, input.role, input.now, input.createdByUserId)
-      .run();
-
-    const saved = await this.find(input.sheetId, input.userId);
-    if (saved === null) throw new Error('Membership upsert did not produce a readable row');
-    return saved;
+      .bind(input.sheetId, input.userId, input.role, input.now, input.createdByUserId);
   }
 
   async find(sheetId: string, userId: string): Promise<SheetMembershipRecord | null> {
@@ -118,10 +122,14 @@ export class MembershipRepository {
 
   /** Revokes a share. Reports whether a row was actually removed. */
   async remove(sheetId: string, userId: string): Promise<boolean> {
-    const result = await this.db
-      .prepare('DELETE FROM sheet_memberships WHERE sheet_id = ?1 AND user_id = ?2')
-      .bind(sheetId, userId)
-      .run();
+    const result = await this.prepareRemove(sheetId, userId).run();
     return (result.meta.changes ?? 0) > 0;
+  }
+
+  /** Same statement as `remove`, unexecuted, for batching with its audit row (M2-FQA-04). */
+  prepareRemove(sheetId: string, userId: string): D1PreparedStatement {
+    return this.db
+      .prepare('DELETE FROM sheet_memberships WHERE sheet_id = ?1 AND user_id = ?2')
+      .bind(sheetId, userId);
   }
 }

@@ -21,6 +21,13 @@ export const LIMITS = {
   auditTargetType: { min: 1, max: 32 },
   auditMetadataJson: { min: 0, max: 4096 },
   taskEventType: { min: 1, max: 64 },
+  /**
+   * The post-login `redirect` path accepted by `GET /api/v1/auth/start`
+   * (Codex M2-QA-04). Bounded so an anonymous, pre-authentication caller
+   * cannot inflate the size of the OAuth-state record written to KV on every
+   * request by supplying an arbitrarily long value.
+   */
+  redirectPath: { min: 1, max: 512 },
 } as const;
 
 /** Recycle-bin recovery window before content becomes purge-eligible (M0-D5). */

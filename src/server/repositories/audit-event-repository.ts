@@ -60,7 +60,16 @@ export class AuditEventRepository {
 
   /** Append-only: the audit stream has no update or delete operation by design. */
   async append(input: AppendAuditEventInput): Promise<void> {
-    await this.db
+    await this.prepareAppend(input).run();
+  }
+
+  /**
+   * Same statement as `append`, unexecuted, so a caller can batch it with the
+   * mutation it audits (M2-FQA-04): required audit evidence must commit
+   * atomically with the state change it documents.
+   */
+  prepareAppend(input: AppendAuditEventInput): D1PreparedStatement {
+    return this.db
       .prepare(
         `INSERT INTO audit_events (id, actor_user_id, action, target_type, target_id,
                                    metadata_json, request_id, created_at)
@@ -75,8 +84,7 @@ export class AuditEventRepository {
         input.metadataJson,
         input.requestId,
         input.now
-      )
-      .run();
+      );
   }
 
   /**

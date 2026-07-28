@@ -5,8 +5,9 @@
 export type { Actor } from './actor';
 export { actorFromUser, isAdmin, isEligible } from './actor';
 
-export type { SheetAccessContext } from './sheet-access';
+export type { MoveTaskDecision, SheetAccessContext } from './sheet-access';
 export {
+  canAssignOwnershipTo,
   canManageMembership,
   canManageSheetLifecycle,
   canMoveTask,
@@ -16,6 +17,10 @@ export {
   canTransferOwnership,
   canWriteTasks,
   isOwner,
+  moveAcquiresOwnership,
+  moveChangesTaskOwner,
+  moveRelinquishesOwnership,
+  moveTaskDecision,
   resolveAccessLevel,
 } from './sheet-access';
 
@@ -24,6 +29,8 @@ export {
   canReadTaskHistoryValues,
   canReadTaskNotes,
   canWriteTask,
+  canWriteTaskAsPrivate,
+  canWriteTaskNotesAsPrivate,
   visibleTasksFor,
 } from './content-visibility';
 

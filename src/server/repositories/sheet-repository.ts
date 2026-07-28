@@ -146,6 +146,17 @@ export class SheetRepository {
    * Every active List a user can reach, with the access level that grants it:
    * owned Lists plus Lists where they hold a membership. Resolved in one query
    * so a caller cannot forget one of the two sources.
+   *
+   * The membership branch joins the owner's account state (Codex M2-QA-01): a
+   * List owned by a *recycled* account must "disappear for other members
+   * until restore" (M0 §Accounts), not merely stay listed. Deliberately
+   * `owner.state != 'recycled'` rather than `= 'active'` (Codex M2-RR-01,
+   * correcting an over-broad first attempt): a merely `disabled` owner keeps
+   * owning their Lists per `AccountService.disable`'s own contract, and their
+   * Editors/Viewers must keep their access — only recycling triggers the
+   * disappear-until-restore rule. The owner branch does not need the join —
+   * a user viewing their own owned Lists is necessarily an eligible account,
+   * since an ineligible actor is denied before this query runs.
    */
   async listAccessibleActive(userId: string): Promise<AccessibleSheetRecord[]> {
     const { results } = await this.db
@@ -157,7 +168,8 @@ export class SheetRepository {
          SELECT ${columnList(SHEET_COLUMNS, 's.')}, m.role AS access_level
          FROM sheets s
          JOIN sheet_memberships m ON m.sheet_id = s.id
-         WHERE m.user_id = ?1 AND s.state = 'active'
+         JOIN users owner ON owner.id = s.owner_user_id
+         WHERE m.user_id = ?1 AND s.state = 'active' AND owner.state != 'recycled'
          ORDER BY display_name, id`
       )
       .bind(userId)
@@ -174,38 +186,51 @@ export class SheetRepository {
 
   /** Moves the List into the 30-day recycle bin as one unit with its tasks. */
   async recycle(id: string, now: number): Promise<void> {
-    await this.db
+    await this.prepareRecycle(id, now).run();
+  }
+
+  /** Same statement as `recycle`, unexecuted, for batching with its audit row (M2-FQA-04). */
+  prepareRecycle(id: string, now: number): D1PreparedStatement {
+    return this.db
       .prepare(
         `UPDATE sheets SET state = 'recycled', recycled_at = ?2, updated_at = ?2 WHERE id = ?1`
       )
-      .bind(id, now)
-      .run();
+      .bind(id, now);
   }
 
   async restore(id: string, now: number): Promise<void> {
-    await this.db
+    await this.prepareRestore(id, now).run();
+  }
+
+  /** Same statement as `restore`, unexecuted, for batching with its audit row (M2-FQA-04). */
+  prepareRestore(id: string, now: number): D1PreparedStatement {
+    return this.db
       .prepare(
         `UPDATE sheets SET state = 'active', recycled_at = NULL, updated_at = ?2 WHERE id = ?1`
       )
-      .bind(id, now)
-      .run();
+      .bind(id, now);
   }
 
   /**
    * Atomically moves ownership to `newOwnerUserId`, clearing any viewer/editor
-   * row that user held on this List first. Both statements run in one D1 batch:
-   * ownership cannot end up transferred while a stale membership row survives,
-   * and it cannot end up half-applied if the trigger aborts.
+   * row that user held on this List first, in the same batch as the caller's
+   * required audit row (M2-FQA-04). Ownership cannot end up transferred while
+   * a stale membership row survives or with no audit evidence of the change.
    */
   async transferOwnership(id: string, newOwnerUserId: string, now: number): Promise<void> {
-    await this.db.batch([
+    await this.db.batch(this.prepareTransferOwnership(id, newOwnerUserId, now));
+  }
+
+  /** The two statements `transferOwnership` batches, unexecuted, for batching with an audit row. */
+  prepareTransferOwnership(id: string, newOwnerUserId: string, now: number): D1PreparedStatement[] {
+    return [
       this.db
         .prepare('DELETE FROM sheet_memberships WHERE sheet_id = ?1 AND user_id = ?2')
         .bind(id, newOwnerUserId),
       this.db
         .prepare('UPDATE sheets SET owner_user_id = ?2, updated_at = ?3 WHERE id = ?1')
         .bind(id, newOwnerUserId, now),
-    ]);
+    ];
   }
 
   /**
@@ -214,6 +239,11 @@ export class SheetRepository {
    * "List and everything in it, as one unit" lifecycle.
    */
   async deletePermanently(id: string): Promise<void> {
-    await this.db.prepare('DELETE FROM sheets WHERE id = ?1').bind(id).run();
+    await this.prepareDeletePermanently(id).run();
+  }
+
+  /** Same statement as `deletePermanently`, unexecuted, for batching with its audit row. */
+  prepareDeletePermanently(id: string): D1PreparedStatement {
+    return this.db.prepare('DELETE FROM sheets WHERE id = ?1').bind(id);
   }
 }

@@ -29,6 +29,15 @@ export interface Repositories {
 
 export interface ServiceDeps {
   repos: Repositories;
+  /**
+   * The same D1 handle every repository in `repos` was constructed with.
+   * Exposed so a service can batch statements from more than one repository
+   * into a single `db.batch()` call (M2-FQA-04): a required history or audit
+   * row must commit atomically with the mutation it records, and D1's
+   * transactional primitive works across repository boundaries only if the
+   * caller holds the shared connection, not just the individual repositories.
+   */
+  db: D1Database;
   clock: Clock;
   /** Correlates audit rows with the request that caused them. */
   requestId?: string;

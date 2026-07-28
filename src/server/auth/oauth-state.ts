@@ -19,6 +19,18 @@
 //
 // The state value itself is stored *hashed*: a KV listing does not yield a
 // usable state parameter.
+//
+// One-time consumption is best-effort, not a strict guarantee, because it is
+// built on Workers KV (Codex M2-QA-02). KV documents reads as eventually
+// consistent, with cross-location write propagation that can take up to 60
+// seconds. Two callbacks racing the same state within that window, from
+// different Cloudflare locations, could both read it before either delete
+// becomes visible. Brian reviewed this and approved keeping sessions/state in
+// KV and accepting this residual race as a documented, bounded risk rather
+// than adding new strongly-consistent infrastructure (M2-QA-02-DECISION in
+// the M2 milestone document's Decision Log) — this is not a claim that KV
+// makes replay impossible, and no further code change is expected here absent
+// a new incident or decision.
 
 import { generateToken, hashToken } from './tokens';
 
@@ -75,7 +87,9 @@ export class OAuthStateStore {
   }
 
   /**
-   * Atomically retrieves and destroys a state record.
+   * Retrieves and destroys a state record: get-then-delete, not a single
+   * atomic KV primitive (KV has none). See the file header for the
+   * consequence of that on Workers KV's eventual consistency (Codex M2-QA-02).
    *
    * Deletes before validating expiry, so even an expired state is spent by the
    * attempt to use it. Returns null for absent, already-consumed, expired, or

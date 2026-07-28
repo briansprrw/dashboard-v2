@@ -108,10 +108,14 @@ const TASK_FIELDS = [
 /**
  * Full task field state, used by both create and update.
  *
- * The privacy flags default to `false` when omitted. That direction is the safe
- * one for a *default*: it never marks something private that the caller did not
- * ask to be private, and it never silently un-privates an existing task,
- * because update callers send the complete intended state.
+ * The privacy flags are required, with no default (M2-FQA-04): a full
+ * replacement (PUT) must state the complete intended state explicitly. An
+ * omission-defaults-to-`false` rule sounds safe but is not, because it applies
+ * on *update* too — a client that sends every field except `isPrivate` would
+ * silently declassify an existing private task rather than leaving it alone.
+ * Requiring the field instead of guessing at its absence means a stale or
+ * partial client payload fails validation instead of quietly changing a
+ * privacy-sensitive flag no one asked to change.
  */
 export function parseTaskFields(input: unknown): TaskFieldsRequest {
   const body = requireObject(input);
@@ -123,8 +127,8 @@ export function parseTaskFields(input: unknown): TaskFieldsRequest {
   const priority = validateEnum(errors, 'priority', body.priority, TASK_PRIORITIES);
   const dueDate = validateDueDate(errors, 'dueDate', body.dueDate);
   const notes = validateOptionalString(errors, 'notes', body.notes, LIMITS.taskNotes);
-  const isPrivate = validateBoolean(errors, 'isPrivate', body.isPrivate, false);
-  const notesPrivate = validateBoolean(errors, 'notesPrivate', body.notesPrivate, false);
+  const isPrivate = validateBoolean(errors, 'isPrivate', body.isPrivate);
+  const notesPrivate = validateBoolean(errors, 'notesPrivate', body.notesPrivate);
   const emojiFlagsJson = validateEmojiFlags(errors, 'emojiFlags', body.emojiFlags);
   errors.throwIfAny();
 
@@ -142,9 +146,10 @@ export function parseTaskFields(input: unknown): TaskFieldsRequest {
 
 export interface MoveTaskRequest {
   destinationSheetId: string;
+  confirmed: boolean;
 }
 
-const MOVE_TASK_FIELDS = ['destinationSheetId'] as const;
+const MOVE_TASK_FIELDS = ['destinationSheetId', 'confirmed'] as const;
 
 export function parseMoveTask(input: unknown): MoveTaskRequest {
   const body = requireObject(input);
@@ -152,9 +157,10 @@ export function parseMoveTask(input: unknown): MoveTaskRequest {
 
   const errors = new FieldErrors();
   const destinationSheetId = validateId(errors, 'destinationSheetId', body.destinationSheetId);
+  const confirmed = validateBoolean(errors, 'confirmed', body.confirmed, false);
   errors.throwIfAny();
 
-  return { destinationSheetId: destinationSheetId as string };
+  return { destinationSheetId: destinationSheetId as string, confirmed };
 }
 
 export interface ProfileBootstrapRequest {

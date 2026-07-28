@@ -82,7 +82,17 @@ export class TaskEventRepository {
 
   /** History is append-only from application routes; there is no update or delete here. */
   async append(input: AppendTaskEventInput): Promise<void> {
-    await this.db
+    await this.prepareAppend(input).run();
+  }
+
+  /**
+   * Same statement as `append`, unexecuted, so a caller can batch it with the
+   * task mutation it records (M2-FQA-04): a required history row must commit
+   * atomically with the change it describes, not as a separate statement that
+   * can fail independently and leave a mutation with no evidence.
+   */
+  prepareAppend(input: AppendTaskEventInput): D1PreparedStatement {
+    return this.db
       .prepare(
         `INSERT INTO task_events (id, task_id, actor_user_id, event_type, changes_json, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
@@ -94,8 +104,7 @@ export class TaskEventRepository {
         input.eventType,
         input.changesJson,
         input.now
-      )
-      .run();
+      );
   }
 
   /**

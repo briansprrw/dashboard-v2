@@ -9,6 +9,7 @@ import { TaskService } from '../../src/server/services/task-service';
 import type { SheetRecord, UserRecord } from '../../src/shared/domain/records';
 import {
   auditEvents,
+  db,
   makeSheet,
   makeTask,
   makeUser,
@@ -38,6 +39,7 @@ function deps(requestId = 'test-request'): ServiceDeps {
       taskEvents: taskEvents(),
       auditEvents: auditEvents(),
     },
+    db: db(),
     clock: () => T0,
     requestId,
   };
@@ -317,6 +319,289 @@ describe('private tasks', () => {
   });
 });
 
+// M2-FQA-03: authorization must check the *requested* isPrivate state, not
+// only the task's stored state before the write. `canWriteTasks` alone (on
+// create) or `canWriteTask` against the pre-write record alone (on update)
+// let a non-owner produce owner-only content they could never have written
+// into an existing private task.
+describe('creating or transitioning a task to private requires ownership (M2-FQA-03)', () => {
+  it.each([['editor'], ['admin']] as const)(
+    'denies %s creating a task with isPrivate: true',
+    async (role) => {
+      const s = await scenario();
+      const services = buildServices();
+      await expectStatus(
+        services.tasks.create(s.actors[role], s.sheet.id, {
+          name: 'Attempted private task',
+          status: 'not_started',
+          priority: 'medium',
+          dueDate: null,
+          notes: null,
+          isPrivate: true,
+          notesPrivate: false,
+          emojiFlagsJson: null,
+        }),
+        403
+      );
+    }
+  );
+
+  it('does not create a task row when a non-owner private creation is denied', async () => {
+    const s = await scenario();
+    const services = buildServices();
+    const before = await services.tasks.listForSheet(s.actors.owner, s.sheet.id);
+
+    await expectStatus(
+      services.tasks.create(s.actors.editor, s.sheet.id, {
+        name: 'Attempted private task',
+        status: 'not_started',
+        priority: 'medium',
+        dueDate: null,
+        notes: null,
+        isPrivate: true,
+        notesPrivate: false,
+        emojiFlagsJson: null,
+      }),
+      403
+    );
+
+    const after = await services.tasks.listForSheet(s.actors.owner, s.sheet.id);
+    expect(after).toHaveLength(before.length);
+  });
+
+  it('allows the owner to create a private task', async () => {
+    const s = await scenario();
+    const services = buildServices();
+    const task = await services.tasks.create(s.actors.owner, s.sheet.id, {
+      name: 'Owner private task',
+      status: 'not_started',
+      priority: 'medium',
+      dueDate: null,
+      notes: null,
+      isPrivate: true,
+      notesPrivate: false,
+      emojiFlagsJson: null,
+    });
+    expect(task.isPrivate).toBe(true);
+  });
+
+  it.each([['editor'], ['admin']] as const)(
+    'denies %s transitioning an ordinary task to private',
+    async (role) => {
+      const s = await scenario();
+      const services = buildServices();
+      const task = await makeTask(s.sheet.id, { name: 'Ordinary task', isPrivate: false });
+
+      await expectStatus(
+        services.tasks.update(s.actors[role], task.id, {
+          name: 'Ordinary task',
+          status: 'not_started',
+          priority: 'medium',
+          dueDate: null,
+          notes: null,
+          isPrivate: true,
+          notesPrivate: false,
+          emojiFlagsJson: null,
+        }),
+        403
+      );
+
+      const stillPublic = await tasks().findById(task.id);
+      expect(stillPublic?.isPrivate).toBe(false);
+    }
+  );
+
+  it('allows the owner to transition their own task to private', async () => {
+    const s = await scenario();
+    const services = buildServices();
+    const task = await makeTask(s.sheet.id, { name: 'Ordinary task', isPrivate: false });
+
+    const updated = await services.tasks.update(s.actors.owner, task.id, {
+      name: 'Ordinary task',
+      status: 'not_started',
+      priority: 'medium',
+      dueDate: null,
+      notes: null,
+      isPrivate: true,
+      notesPrivate: false,
+      emojiFlagsJson: null,
+    });
+    expect(updated.isPrivate).toBe(true);
+  });
+});
+
+// M2-FQA-RR-02: the notesPrivate axis is independent of isPrivate and needs
+// its own authorization gate. canWriteTaskAsPrivate alone left an ordinary
+// (isPrivate: false) task free to carry notesPrivate: true written by a
+// non-owner — the task-level check passed because the task itself was not
+// going private.
+describe('creating or changing a private note requires ownership (M2-FQA-RR-02)', () => {
+  it.each([['editor'], ['admin']] as const)(
+    'denies %s creating an ordinary task with notesPrivate: true',
+    async (role) => {
+      const s = await scenario();
+      const services = buildServices();
+      await expectStatus(
+        services.tasks.create(s.actors[role], s.sheet.id, {
+          name: 'Attempted private-note task',
+          status: 'not_started',
+          priority: 'medium',
+          dueDate: null,
+          notes: 'attempted note',
+          isPrivate: false,
+          notesPrivate: true,
+          emojiFlagsJson: null,
+        }),
+        403
+      );
+    }
+  );
+
+  it('allows the owner to create an ordinary task with notesPrivate: true', async () => {
+    const s = await scenario();
+    const services = buildServices();
+    const task = await services.tasks.create(s.actors.owner, s.sheet.id, {
+      name: 'Owner note-private task',
+      status: 'not_started',
+      priority: 'medium',
+      dueDate: null,
+      notes: 'owner note',
+      isPrivate: false,
+      notesPrivate: true,
+      emojiFlagsJson: null,
+    });
+    expect(task.notesPrivate).toBe(true);
+  });
+
+  it.each([['editor'], ['admin']] as const)(
+    'denies %s transitioning an ordinary note to private',
+    async (role) => {
+      const s = await scenario();
+      const services = buildServices();
+      const task = await makeTask(s.sheet.id, {
+        name: 'Ordinary task',
+        notes: 'ordinary note',
+        isPrivate: false,
+        notesPrivate: false,
+      });
+
+      await expectStatus(
+        services.tasks.update(s.actors[role], task.id, {
+          name: 'Ordinary task',
+          status: 'not_started',
+          priority: 'medium',
+          dueDate: null,
+          notes: 'ordinary note',
+          isPrivate: false,
+          notesPrivate: true,
+          emojiFlagsJson: null,
+        }),
+        403
+      );
+
+      const stillPublic = await tasks().findById(task.id);
+      expect(stillPublic?.notesPrivate).toBe(false);
+    }
+  );
+
+  it.each([['editor'], ['admin']] as const)(
+    'denies %s editing the text of an already-private note',
+    async (role) => {
+      const s = await scenario();
+      const services = buildServices();
+      const task = await makeTask(s.sheet.id, {
+        name: 'Ordinary task',
+        notes: 'original private note',
+        isPrivate: false,
+        notesPrivate: true,
+      });
+
+      await expectStatus(
+        services.tasks.update(s.actors[role], task.id, {
+          name: 'Ordinary task',
+          status: 'not_started',
+          priority: 'medium',
+          dueDate: null,
+          notes: 'hijacked note text',
+          isPrivate: false,
+          notesPrivate: true,
+          emojiFlagsJson: null,
+        }),
+        403
+      );
+
+      const unchanged = await tasks().findById(task.id);
+      expect(unchanged?.notes).toBe('original private note');
+    }
+  );
+
+  it.each([['editor'], ['admin']] as const)(
+    'denies %s un-privating an already-private note',
+    async (role) => {
+      const s = await scenario();
+      const services = buildServices();
+      const task = await makeTask(s.sheet.id, {
+        name: 'Ordinary task',
+        notes: 'still private',
+        isPrivate: false,
+        notesPrivate: true,
+      });
+
+      await expectStatus(
+        services.tasks.update(s.actors[role], task.id, {
+          name: 'Ordinary task',
+          status: 'not_started',
+          priority: 'medium',
+          dueDate: null,
+          notes: 'still private',
+          isPrivate: false,
+          notesPrivate: false,
+          emojiFlagsJson: null,
+        }),
+        403
+      );
+
+      const stillPrivate = await tasks().findById(task.id);
+      expect(stillPrivate?.notesPrivate).toBe(true);
+    }
+  );
+
+  it('allows the owner to edit, clear, and un-private their own private note', async () => {
+    const s = await scenario();
+    const services = buildServices();
+    const task = await makeTask(s.sheet.id, {
+      name: 'Ordinary task',
+      notes: 'original',
+      isPrivate: false,
+      notesPrivate: true,
+    });
+
+    const edited = await services.tasks.update(s.actors.owner, task.id, {
+      name: 'Ordinary task',
+      status: 'not_started',
+      priority: 'medium',
+      dueDate: null,
+      notes: 'edited by owner',
+      isPrivate: false,
+      notesPrivate: true,
+      emojiFlagsJson: null,
+    });
+    expect(edited.notes).toBe('edited by owner');
+
+    const unprivated = await services.tasks.update(s.actors.owner, task.id, {
+      name: 'Ordinary task',
+      status: 'not_started',
+      priority: 'medium',
+      dueDate: null,
+      notes: 'edited by owner',
+      isPrivate: false,
+      notesPrivate: false,
+      emojiFlagsJson: null,
+    });
+    expect(unprivated.notesPrivate).toBe(false);
+  });
+});
+
 describe('task history visibility', () => {
   it('gives the List owner the full history', async () => {
     const s = await scenario();
@@ -352,8 +637,8 @@ describe('task move requires rights on both Lists', () => {
     });
 
     const task = await makeTask(s.sheet.id);
-    const moved = await buildServices().tasks.move(s.actors.editor, task.id, destination.id);
-    expect(moved.sheetId).toBe(destination.id);
+    const moved = await buildServices().tasks.move(s.actors.editor, task.id, destination.id, false);
+    expect(moved.task.sheetId).toBe(destination.id);
   });
 
   it('denies a move into a List where the actor is only a viewer', async () => {
@@ -368,7 +653,10 @@ describe('task move requires rights on both Lists', () => {
     });
 
     const task = await makeTask(s.sheet.id);
-    await expectStatus(buildServices().tasks.move(s.actors.editor, task.id, destination.id), 403);
+    await expectStatus(
+      buildServices().tasks.move(s.actors.editor, task.id, destination.id, false),
+      403
+    );
   });
 
   it('denies a move into a List the actor cannot see at all, as 404', async () => {
@@ -376,7 +664,10 @@ describe('task move requires rights on both Lists', () => {
     const foreign = await makeSheet(s.stranger.id);
     const task = await makeTask(s.sheet.id);
 
-    await expectStatus(buildServices().tasks.move(s.actors.editor, task.id, foreign.id), 404);
+    await expectStatus(
+      buildServices().tasks.move(s.actors.editor, task.id, foreign.id, false),
+      404
+    );
   });
 
   it('leaves the task in place when the move is denied', async () => {
@@ -384,10 +675,86 @@ describe('task move requires rights on both Lists', () => {
     const foreign = await makeSheet(s.stranger.id);
     const task = await makeTask(s.sheet.id);
 
-    await expectStatus(buildServices().tasks.move(s.actors.editor, task.id, foreign.id), 404);
+    await expectStatus(
+      buildServices().tasks.move(s.actors.editor, task.id, foreign.id, false),
+      404
+    );
 
     const after = await tasks().findById(task.id);
     expect(after?.sheetId).toBe(s.sheet.id);
+  });
+});
+
+// M2-FQA-04: a required history/audit row must commit atomically with the
+// mutation it documents. These prove it by injecting a genuine D1 failure —
+// an invalid foreign key on the *second* statement of a real service-level
+// batch — and asserting the *first* statement (the mutation itself) also did
+// not apply. `D1Database.batch()` is documented as all-or-nothing, but the
+// defect this finding describes was never calling it in the first place; a
+// batch call alone is not proof, a rejected batch leaving no partial state is.
+describe('mutation and required history/audit evidence commit atomically (M2-FQA-04)', () => {
+  it('a task update batched with an invalid history statement leaves the task unchanged', async () => {
+    const s = await scenario();
+    const task = await makeTask(s.sheet.id, { name: 'Original name' });
+    const services = buildServices();
+    const d = deps();
+
+    await expect(
+      d.db.batch([
+        d.repos.tasks.prepareUpdate(task.id, {
+          name: 'Should not persist',
+          status: 'not_started',
+          priority: 'medium',
+          dueDate: null,
+          notes: null,
+          isPrivate: false,
+          notesPrivate: false,
+          emojiFlagsJson: null,
+          updatedByUserId: s.owner.id,
+          now: T0,
+        }),
+        // Invalid: no task with this id exists, so the FK on task_events.task_id fails.
+        d.repos.taskEvents.prepareAppend({
+          id: crypto.randomUUID(),
+          taskId: crypto.randomUUID(),
+          actorUserId: s.owner.id,
+          eventType: 'updated',
+          changesJson: '{}',
+          now: T0,
+        }),
+      ])
+    ).rejects.toThrow();
+
+    const unchanged = await services.tasks.getById(s.actors.owner, task.id);
+    expect(unchanged.task.name).toBe('Original name');
+  });
+
+  it('an admin task restore batched with an invalid audit statement leaves the task recycled', async () => {
+    const s = await scenario();
+    const task = await makeTask(s.sheet.id);
+    const services = buildServices();
+    const d = deps();
+    await services.tasks.recycle(s.actors.owner, task.id);
+
+    await expect(
+      d.db.batch([
+        d.repos.tasks.prepareRestore(task.id, s.actors.admin.userId, T0),
+        // Invalid: exceeds the audit metadata length bound the schema enforces.
+        d.repos.auditEvents.prepareAppend({
+          id: crypto.randomUUID(),
+          actorUserId: s.actors.admin.userId,
+          action: 'task.restored.admin',
+          targetType: 'task',
+          targetId: task.id,
+          metadataJson: 'x'.repeat(100_000),
+          requestId: null,
+          now: T0,
+        }),
+      ])
+    ).rejects.toThrow();
+
+    const stillRecycled = await tasks().findById(task.id);
+    expect(stillRecycled?.recycledAt).not.toBeNull();
   });
 });
 
@@ -396,6 +763,26 @@ describe('ownership invariant', () => {
     const s = await scenario();
     await expectStatus(
       buildServices().sheets.grantMembership(s.actors.owner, s.sheet.id, s.owner.id, 'editor'),
+      409
+    );
+  });
+
+  it('refuses to grant a membership to a disabled account', async () => {
+    const s = await scenario();
+    await users().disable(s.stranger.id, T0);
+
+    await expectStatus(
+      buildServices().sheets.grantMembership(s.actors.owner, s.sheet.id, s.stranger.id, 'viewer'),
+      409
+    );
+  });
+
+  it('refuses to grant a membership to a recycled account', async () => {
+    const s = await scenario();
+    await users().recycle(s.stranger.id, T0);
+
+    await expectStatus(
+      buildServices().sheets.grantMembership(s.actors.owner, s.sheet.id, s.stranger.id, 'viewer'),
       409
     );
   });
@@ -480,6 +867,128 @@ describe('recycle-before-purge lifecycle', () => {
     const s = await scenario();
     const task = await makeTask(s.sheet.id);
     await expectStatus(buildServices().tasks.purge(s.actors.owner, task.id), 409);
+  });
+});
+
+// Codex M2-QA-01: a recycled List, or a List owned by a recycled/disabled
+// account, must disappear from ordinary access for every non-admin role
+// (Viewer, Editor, and even the owner themself once their own account is the
+// one that's ineligible) until an owner-or-admin restore — not merely become
+// read-only. These tests exercise both triggers (List-level recycle, and
+// owner-account-level recycle/disable) against every role, plus the two
+// lifecycle methods (`recycle`/`restore`/`purge`) that must still reach a
+// recycled List precisely in order to act on it, and prove reachability
+// returns after restore.
+describe('recycled Lists and ineligible-owner Lists disappear from ordinary access', () => {
+  it('denies List read to owner, editor, and viewer once the List itself is recycled', async () => {
+    const s = await scenario();
+    const services = buildServices();
+    await services.sheets.recycle(s.actors.owner, s.sheet.id);
+
+    await expectStatus(buildServices().sheets.authorize(s.actors.owner, s.sheet.id), 404);
+    await expectStatus(buildServices().sheets.authorize(s.actors.editor, s.sheet.id), 404);
+    await expectStatus(buildServices().sheets.authorize(s.actors.viewer, s.sheet.id), 404);
+  });
+
+  it('denies task read/write in a recycled List to every non-lifecycle role', async () => {
+    const s = await scenario();
+    const services = buildServices();
+    const task = await makeTask(s.sheet.id);
+    await services.sheets.recycle(s.actors.owner, s.sheet.id);
+
+    await expectStatus(buildServices().tasks.getById(s.actors.editor, task.id), 404);
+    await expectStatus(buildServices().tasks.listForSheet(s.actors.viewer, s.sheet.id), 404);
+    await expectStatus(
+      buildServices().tasks.update(s.actors.editor, task.id, {
+        name: 'Attempted edit',
+        status: 'not_started',
+        priority: 'medium',
+        dueDate: null,
+        notes: null,
+        isPrivate: false,
+        notesPrivate: false,
+        emojiFlagsJson: null,
+      }),
+      404
+    );
+  });
+
+  it('restores ordinary access to a recycled List after an owner restore', async () => {
+    const s = await scenario();
+    const services = buildServices();
+    await services.sheets.recycle(s.actors.owner, s.sheet.id);
+    await services.sheets.restore(s.actors.owner, s.sheet.id);
+
+    const { sheet } = await buildServices().sheets.authorize(s.actors.viewer, s.sheet.id);
+    expect(sheet.state).toBe('active');
+  });
+
+  it('denies List read to editor and viewer once the owner account is recycled', async () => {
+    const s = await scenario();
+    await users().recycle(s.owner.id, T0);
+
+    await expectStatus(buildServices().sheets.authorize(s.actors.editor, s.sheet.id), 404);
+    await expectStatus(buildServices().sheets.authorize(s.actors.viewer, s.sheet.id), 404);
+  });
+
+  it('preserves editor and viewer access when the owner account is merely disabled (Codex M2-RR-01)', async () => {
+    // Corrects a regression from the M2-QA-01 fix: disabling an owner blocks
+    // only that owner's own login. AccountService.disable's own contract is
+    // that "the account keeps owning its Lists" — only recycling triggers the
+    // disappear-until-restore rule (M0 §Accounts). A disabled owner's existing
+    // Editors/Viewers must keep their access to a List that still exists and
+    // is not in any recovery window.
+    const s = await scenario();
+    const task = await makeTask(s.sheet.id);
+    await users().disable(s.owner.id, T0);
+
+    const { sheet } = await buildServices().sheets.authorize(s.actors.editor, s.sheet.id);
+    expect(sheet.state).toBe('active');
+    await expect(
+      buildServices().sheets.authorize(s.actors.viewer, s.sheet.id)
+    ).resolves.toBeTruthy();
+    await expect(buildServices().tasks.getById(s.actors.editor, task.id)).resolves.toBeTruthy();
+
+    const accessible = await buildServices().sheets.listAccessible(s.actors.editor);
+    expect(accessible.find((sh) => sh.id === s.sheet.id)).toBeDefined();
+
+    // The disabled owner themself still cannot authenticate — that denial
+    // happens at the session layer (test/integration/auth-lifecycle.test.ts),
+    // not by hiding the List from other members.
+  });
+
+  it('denies task read/write once the owner account is recycled', async () => {
+    const s = await scenario();
+    const task = await makeTask(s.sheet.id);
+    await users().recycle(s.owner.id, T0);
+
+    await expectStatus(buildServices().tasks.getById(s.actors.editor, task.id), 404);
+    await expectStatus(buildServices().tasks.listForSheet(s.actors.viewer, s.sheet.id), 404);
+  });
+
+  it('excludes a List owned by a recycled account from the members list', async () => {
+    const s = await scenario();
+    await users().recycle(s.owner.id, T0);
+
+    const accessible = await buildServices().sheets.listAccessible(s.actors.editor);
+    expect(accessible.find((sh) => sh.id === s.sheet.id)).toBeUndefined();
+  });
+
+  it('an Admin can still reach a List whose owner account is recycled', async () => {
+    const s = await scenario();
+    await users().recycle(s.owner.id, T0);
+
+    const { sheet } = await buildServices().sheets.authorize(s.actors.admin, s.sheet.id);
+    expect(sheet.id).toBe(s.sheet.id);
+  });
+
+  it('restores editor and viewer access after the owner account is restored', async () => {
+    const s = await scenario();
+    await users().recycle(s.owner.id, T0);
+    await buildServices().accounts.restore(s.actors.admin, s.owner.id);
+
+    const { sheet } = await buildServices().sheets.authorize(s.actors.editor, s.sheet.id);
+    expect(sheet.state).toBe('active');
   });
 });
 

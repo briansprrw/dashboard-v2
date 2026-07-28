@@ -6,13 +6,13 @@
 
 import { Hono } from 'hono';
 
-import { toTaskDto, toTaskEventDto } from '../../shared/contracts/dto';
+import { toTaskDto, toTaskEventDto, toTaskMoveResultDto } from '../../shared/contracts/dto';
 import { parseMoveTask, parseTaskFields } from '../../shared/contracts/requests';
 import { requireId } from '../../shared/contracts/validation';
 import { buildServices } from '../app-context';
 import type { AppEnv } from '../env';
 import { readJsonBody } from '../http/request-body';
-import { canReadTaskNotes } from '../policy';
+import { canReadTask, canReadTaskNotes } from '../policy';
 
 export const taskRoutes = new Hono<AppEnv>();
 
@@ -42,8 +42,25 @@ taskRoutes.post('/:taskId/move', async (c) => {
   const body = parseMoveTask(await readJsonBody(c));
   const services = buildServices(c.env, c.get('requestId'));
 
-  const task = await services.tasks.move(actor, taskId, body.destinationSheetId);
-  const { context } = await services.tasks.getById(actor, taskId);
+  // Built from the destination context `move` already resolved, not a fresh
+  // re-authorization: after a confirmed relinquishing move the mover may no
+  // longer be able to read the task at all, which is the point of the
+  // confirmation they just gave (M2-FQA-06). Re-authorizing here would turn
+  // that expected, successful outcome into a false 404.
+  const { task, context } = await services.tasks.move(
+    actor,
+    taskId,
+    body.destinationSheetId,
+    body.confirmed
+  );
+
+  // A confirmed relinquish can leave the actor unable to read the task at
+  // its new location — exactly the outcome the confirmation warned about.
+  // The full task DTO must not be returned to someone `canReadTask` denies
+  // (M2-FQA-RR-03): an opaque acknowledgement carries no task field at all.
+  if (!canReadTask(actor, context, task)) {
+    return c.json({ result: toTaskMoveResultDto(task.id, task.sheetId) });
+  }
   return c.json({ task: toTaskDto(task, canReadTaskNotes(actor, context, task)) });
 });
 

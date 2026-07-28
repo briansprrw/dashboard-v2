@@ -139,41 +139,14 @@ CREATE TABLE sheet_memberships (
 
 CREATE INDEX idx_sheet_memberships_user ON sheet_memberships (user_id);
 
--- Ownership invariant backstop, insert side: the owner of a List can never
--- also hold a viewer/editor row on it.
-CREATE TRIGGER sheet_memberships_reject_owner_insert
-BEFORE INSERT ON sheet_memberships
-WHEN EXISTS (
-  SELECT 1 FROM sheets WHERE sheets.id = NEW.sheet_id AND sheets.owner_user_id = NEW.user_id
-)
-BEGIN
-  SELECT RAISE(ABORT, 'sheet owner cannot hold a membership row');
-END;
-
--- Same invariant, update side (e.g. re-pointing an existing share at the
--- owner's user id).
-CREATE TRIGGER sheet_memberships_reject_owner_update
-BEFORE UPDATE ON sheet_memberships
-WHEN EXISTS (
-  SELECT 1 FROM sheets WHERE sheets.id = NEW.sheet_id AND sheets.owner_user_id = NEW.user_id
-)
-BEGIN
-  SELECT RAISE(ABORT, 'sheet owner cannot hold a membership row');
-END;
-
--- Same invariant, ownership-transfer side: transferring a List to a user who
--- currently holds a viewer/editor row must resolve that row in the same
--- service operation. Ordering the batch as (delete membership, update owner)
--- succeeds; transferring without resolving it aborts.
-CREATE TRIGGER sheets_reject_transfer_to_member
-BEFORE UPDATE OF owner_user_id ON sheets
-WHEN EXISTS (
-  SELECT 1 FROM sheet_memberships
-  WHERE sheet_memberships.sheet_id = NEW.id AND sheet_memberships.user_id = NEW.owner_user_id
-)
-BEGIN
-  SELECT RAISE(ABORT, 'new owner must not hold a membership row on this sheet');
-END;
+-- The three ownership-invariant triggers that belong with this table live in
+-- `0003_ownership_triggers.sql`, not here. That split is not stylistic: a
+-- trigger body contains its own statement terminators, and Wrangler's remote
+-- migration path splits a migration file on those terminators before sending
+-- each piece to D1's HTTP API — which cuts a trigger in half and fails with
+-- "incomplete input". Applying the triggers from a file of their own, one
+-- statement per file, is what makes them deployable to a real database.
+-- See `0003` for the full explanation and the invariant they protect.
 
 --------------------------------------------------------------------------------
 -- tasks
@@ -307,6 +280,9 @@ CREATE INDEX idx_audit_events_target ON audit_events (target_type, target_id);
 --------------------------------------------------------------------------------
 -- schema version
 --------------------------------------------------------------------------------
--- Must stay in step with EXPECTED_SCHEMA_VERSION in
--- src/shared/constants/schema.ts, which /api/v1/health compares against.
-INSERT INTO schema_version (version, applied_at) VALUES (2, unixepoch());
+-- Deliberately NOT recorded here. The domain schema is only complete once the
+-- ownership-invariant triggers in `0003_ownership_triggers.sql` exist, so the
+-- version bump lives at the end of `0003`. A database that has applied `0002`
+-- but not `0003` has tables without their ownership backstop, and must not
+-- report itself as ready: /api/v1/health compares the recorded version against
+-- EXPECTED_SCHEMA_VERSION and correctly degrades until `0003` lands.

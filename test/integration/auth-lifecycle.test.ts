@@ -15,13 +15,14 @@ import type {
 } from '../../src/server/auth/identity-provider';
 import { ProviderExchangeError } from '../../src/server/auth/identity-provider';
 import { OAuthStateStore } from '../../src/server/auth/oauth-state';
+import { checkRateLimit } from '../../src/server/auth/rate-limit';
 import {
   SessionStore,
   SESSION_ABSOLUTE_TTL_MS,
   SESSION_SLIDING_TTL_MS,
 } from '../../src/server/auth/session';
 import { UserRepository } from '../../src/server/repositories/user-repository';
-import { makeUser, T0, users } from './fixtures';
+import { makeMigratedUser, makeUser, T0, users } from './fixtures';
 
 // OAuth and session lifecycle against a REAL Miniflare KV namespace and a real
 // D1 database — expiry, one-time consumption, and revocation are exercised
@@ -186,6 +187,72 @@ describe('sanitizeRedirectPath', () => {
   ])('rejects $case', ({ candidate }) => {
     expect(sanitizeRedirectPath(candidate)).toBe('/');
   });
+
+  it('accepts a path at the maximum length', () => {
+    const atMax = `/${'a'.repeat(511)}`;
+    expect(atMax.length).toBe(512);
+    expect(sanitizeRedirectPath(atMax)).toBe(atMax);
+  });
+
+  it('rejects a path one character over the maximum length (Codex M2-QA-04)', () => {
+    const overMax = `/${'a'.repeat(512)}`;
+    expect(overMax.length).toBe(513);
+    expect(sanitizeRedirectPath(overMax)).toBe('/');
+  });
+});
+
+// Codex M2-QA-04: GET /api/v1/auth/start is unauthenticated and previously had
+// no bound at all on how many OAuth-state KV writes one caller could trigger.
+describe('OAuth-start rate limiting', () => {
+  it('allows requests within the limit', async () => {
+    const key = crypto.randomUUID();
+    const policy = { limit: 3, windowSeconds: 60 };
+
+    expect((await checkRateLimit(kv(), key, policy)).allowed).toBe(true);
+    expect((await checkRateLimit(kv(), key, policy)).allowed).toBe(true);
+    expect((await checkRateLimit(kv(), key, policy)).allowed).toBe(true);
+  });
+
+  it('denies a request once the limit is exceeded', async () => {
+    const key = crypto.randomUUID();
+    const policy = { limit: 2, windowSeconds: 60 };
+
+    expect((await checkRateLimit(kv(), key, policy)).allowed).toBe(true);
+    expect((await checkRateLimit(kv(), key, policy)).allowed).toBe(true);
+    const third = await checkRateLimit(kv(), key, policy);
+    expect(third.allowed).toBe(false);
+  });
+
+  it('tracks each key independently', async () => {
+    const policy = { limit: 1, windowSeconds: 60 };
+    const keyA = crypto.randomUUID();
+    const keyB = crypto.randomUUID();
+
+    expect((await checkRateLimit(kv(), keyA, policy)).allowed).toBe(true);
+    expect((await checkRateLimit(kv(), keyA, policy)).allowed).toBe(false);
+    // A different key has its own budget, unaffected by keyA's count.
+    expect((await checkRateLimit(kv(), keyB, policy)).allowed).toBe(true);
+  });
+
+  it('fails open when the KV write conflicts (Codex M2-RR-01 follow-up on M2-QA-04)', async () => {
+    // Every allowed request writes the *same* per-key value; Cloudflare
+    // documents a one-write-per-second limit on a single key, so two ordinary
+    // legitimate requests from one IP within the same second could otherwise
+    // make the second write fail. That failure must be absorbed as "allow",
+    // not surfaced as an error the caller experiences as a broken sign-in.
+    const rejecting: KVNamespace = {
+      ...kv(),
+      get: kv().get.bind(kv()),
+      put: async () => {
+        throw new Error('simulated KV one-write-per-second conflict');
+      },
+    } as unknown as KVNamespace;
+
+    const key = crypto.randomUUID();
+    const policy = { limit: 5, windowSeconds: 60 };
+
+    await expect(checkRateLimit(rejecting, key, policy)).resolves.toMatchObject({ allowed: true });
+  });
 });
 
 describe('sessions', () => {
@@ -284,6 +351,201 @@ describe('sign-in eligibility', () => {
     expect(result.user.id).toBe(user.id);
     expect(result.redirectPath).toBe('/lists');
     expect(result.sessionToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  });
+
+  it("binds a migrated user's first real Google subject in place, without an insert collision (M2-FQA-01)", async () => {
+    const { user, email } = await makeMigratedUser();
+    const realSubject = `real-google-sub-${crypto.randomUUID()}`;
+
+    const clock = fixedClock(T0);
+    const provider = new FakeProvider(profileFor(email, realSubject));
+    const auth = buildAuth(provider, clock.now);
+    const { state } = await new OAuthStateStore(kv()).create({
+      codeVerifier: 'v',
+      redirectPath: '/lists',
+      now: T0,
+    });
+
+    const result = await auth.completeSignIn({ code: 'auth-code', state });
+    expect(result.user.id).toBe(user.id);
+
+    const identity = await users().findIdentityByProviderSubject('google', realSubject);
+    expect(identity?.userId).toBe(user.id);
+    // Exactly one identity row for this user — a rebind, not a second insert.
+    expect(await users().findIdentityByEmail(email)).toMatchObject({
+      providerSubject: realSubject,
+    });
+  });
+
+  it('signs the same migrated user in again on the now-bound subject (repeat login)', async () => {
+    const { user, email } = await makeMigratedUser();
+    const realSubject = `real-google-sub-${crypto.randomUUID()}`;
+    const clock = fixedClock(T0);
+    const provider = new FakeProvider(profileFor(email, realSubject));
+    const auth = buildAuth(provider, clock.now);
+
+    const first = await new OAuthStateStore(kv()).create({
+      codeVerifier: 'v',
+      redirectPath: '/',
+      now: T0,
+    });
+    await auth.completeSignIn({ code: 'c1', state: first.state });
+
+    const second = await new OAuthStateStore(kv()).create({
+      codeVerifier: 'v',
+      redirectPath: '/',
+      now: T0,
+    });
+    const result = await auth.completeSignIn({ code: 'c2', state: second.state });
+    expect(result.user.id).toBe(user.id);
+  });
+
+  // M2-FQA-RR-01: once a real subject is bound, the binding is permanent. A
+  // second, different, otherwise-unclaimed subject presented for the same
+  // email must be refused, not treated as a second placeholder to rebind —
+  // the first correction rebound unconditionally on any subject mismatch,
+  // which let a reassigned Workspace email or changed OAuth-client subject
+  // silently move an existing account to a different real person.
+  it('permanently refuses a second, different subject for the same email after the first real bind', async () => {
+    const { user, email } = await makeMigratedUser();
+    const subjectA = `real-google-sub-a-${crypto.randomUUID()}`;
+    const subjectB = `real-google-sub-b-${crypto.randomUUID()}`;
+    const clock = fixedClock(T0);
+
+    // First real sign-in binds subject A permanently.
+    const authA = buildAuth(new FakeProvider(profileFor(email, subjectA)), clock.now);
+    const firstState = await new OAuthStateStore(kv()).create({
+      codeVerifier: 'v',
+      redirectPath: '/',
+      now: T0,
+    });
+    const boundResult = await authA.completeSignIn({ code: 'c1', state: firstState.state });
+    expect(boundResult.user.id).toBe(user.id);
+
+    // A different, unclaimed subject B for the same email must be refused,
+    // not rebound.
+    const authB = buildAuth(new FakeProvider(profileFor(email, subjectB)), clock.now);
+    const secondState = await new OAuthStateStore(kv()).create({
+      codeVerifier: 'v',
+      redirectPath: '/',
+      now: T0,
+    });
+    await expect(
+      authB.completeSignIn({ code: 'c2', state: secondState.state })
+    ).rejects.toMatchObject({ reason: 'no_account' });
+
+    // Storage still shows subject A, permanently bound, unchanged by the
+    // refused attempt.
+    const identity = await users().findIdentityByEmail(email);
+    expect(identity?.providerSubject).toBe(subjectA);
+    expect(identity?.subjectPending).toBe(false);
+    expect(await users().findIdentityByProviderSubject('google', subjectB)).toBeNull();
+  });
+
+  it('continues to allow repeat sign-in on subject A after a different subject B was refused', async () => {
+    const { user, email } = await makeMigratedUser();
+    const subjectA = `real-google-sub-a-${crypto.randomUUID()}`;
+    const subjectB = `real-google-sub-b-${crypto.randomUUID()}`;
+    const clock = fixedClock(T0);
+
+    const authA = buildAuth(new FakeProvider(profileFor(email, subjectA)), clock.now);
+    const bind = await new OAuthStateStore(kv()).create({
+      codeVerifier: 'v',
+      redirectPath: '/',
+      now: T0,
+    });
+    await authA.completeSignIn({ code: 'c1', state: bind.state });
+
+    const authB = buildAuth(new FakeProvider(profileFor(email, subjectB)), clock.now);
+    const refused = await new OAuthStateStore(kv()).create({
+      codeVerifier: 'v',
+      redirectPath: '/',
+      now: T0,
+    });
+    await expect(authB.completeSignIn({ code: 'c2', state: refused.state })).rejects.toMatchObject({
+      reason: 'no_account',
+    });
+
+    // The permanent binding to A must still work after the refused attempt.
+    const repeat = await new OAuthStateStore(kv()).create({
+      codeVerifier: 'v',
+      redirectPath: '/',
+      now: T0,
+    });
+    const result = await authA.completeSignIn({ code: 'c3', state: repeat.state });
+    expect(result.user.id).toBe(user.id);
+  });
+
+  it('binds only one of two concurrent first-sign-in attempts and denies the loser safely', async () => {
+    const { user, email } = await makeMigratedUser();
+    const subjectA = `real-google-sub-a-${crypto.randomUUID()}`;
+    const subjectB = `real-google-sub-b-${crypto.randomUUID()}`;
+    const clock = fixedClock(T0);
+
+    const authA = buildAuth(new FakeProvider(profileFor(email, subjectA)), clock.now);
+    const authB = buildAuth(new FakeProvider(profileFor(email, subjectB)), clock.now);
+    const stateA = await new OAuthStateStore(kv()).create({
+      codeVerifier: 'v',
+      redirectPath: '/',
+      now: T0,
+    });
+    const stateB = await new OAuthStateStore(kv()).create({
+      codeVerifier: 'v',
+      redirectPath: '/',
+      now: T0,
+    });
+
+    // Simulated concurrency: both callbacks resolve against the same still-
+    // pending row before either commits, then both attempt to complete.
+    const results = await Promise.allSettled([
+      authA.completeSignIn({ code: 'cA', state: stateA.state }),
+      authB.completeSignIn({ code: 'cB', state: stateB.state }),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+    // Exactly one attempt wins; D1's per-statement execution serializes the
+    // two rebind attempts, so this is deterministic, not merely likely.
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((fulfilled[0] as PromiseFulfilledResult<{ user: { id: string } }>).value.user.id).toBe(
+      user.id
+    );
+
+    // Exactly one permanent subject remains bound to this email.
+    const identity = await users().findIdentityByEmail(email);
+    expect(identity?.subjectPending).toBe(false);
+    expect([subjectA, subjectB]).toContain(identity?.providerSubject);
+  });
+
+  it('signs in as the existing owner when the presented subject already belongs to them, rather than rebinding a different email match', async () => {
+    // A real, already-bound subject is looked up by provider identity first
+    // and resolves directly — the email-fallback/rebind path is for a
+    // *placeholder* subject only and is never reached here. This pins that
+    // ordering: presenting someone else's genuine subject signs in as that
+    // person, it does not attempt to bind it onto whatever email happens to
+    // match a *different* stored identity.
+    const otherUser = await makeUser();
+    const otherIdentity = await users().findIdentityByEmail(`${otherUser.id}@example.invalid`);
+    if (otherIdentity === null) throw new Error('fixture identity missing');
+
+    const clock = fixedClock(T0);
+    const provider = new FakeProvider(
+      profileFor(`${otherUser.id}@example.invalid`, otherIdentity.providerSubject)
+    );
+    const auth = buildAuth(provider, clock.now);
+    const { state } = await new OAuthStateStore(kv()).create({
+      codeVerifier: 'v',
+      redirectPath: '/',
+      now: T0,
+    });
+
+    const result = await auth.completeSignIn({ code: 'c', state });
+    expect(result.user.id).toBe(otherUser.id);
+
+    // The identity row is unchanged — no rebind statement ran.
+    const stillOthers = await users().findIdentityByEmail(`${otherUser.id}@example.invalid`);
+    expect(stillOthers?.providerSubject).toBe(otherIdentity.providerSubject);
   });
 
   it('refuses an unknown account rather than creating one (no onboarding in V2)', async () => {
@@ -451,6 +713,25 @@ describe('session resolution and immediate revocation', () => {
       if (state === 'disabled') await users().disable(user.id, T0 + 1);
       else await users().recycle(user.id, T0 + 1);
 
+      expect(await auth.resolveSession(token)).toBeNull();
+    }
+  );
+
+  it.each([['disabled'], ['recycled']] as const)(
+    'does not resurrect the pre-%s session after the account is restored (Codex M2-QA-03)',
+    async (state) => {
+      const { user, auth, token } = await signedInUser();
+      expect(await auth.resolveSession(token)).not.toBeNull();
+
+      if (state === 'disabled') await users().disable(user.id, T0 + 1);
+      else await users().recycle(user.id, T0 + 1);
+      expect(await auth.resolveSession(token)).toBeNull();
+
+      // Restore never re-bumps auth_version (M2-D "restore must remain safe"
+      // per Codex M2-QA-03) — the pre-disable/recycle session must stay dead
+      // because it was destroyed on rejection above and its stored version
+      // can never match again, not because restore happens to revoke it too.
+      await users().restore(user.id, T0 + 2);
       expect(await auth.resolveSession(token)).toBeNull();
     }
   );

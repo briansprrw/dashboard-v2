@@ -2,6 +2,8 @@
 
 This file is the standing execution contract for Claude Code in this repository. Read it at the start of every session before planning or changing files.
 
+**For Claude's communication adjustments specific to Brian (product owner):** see `BRIAN-COLLABORATION-GUIDE.md` (not committed; sensitive profile data).
+
 ## Project mission
 
 Dash2 is a clean successor to the live Dashboard V1 application. It is an always-available, glanceable task dashboard for individuals and small trusted groups. It must answer, within seconds:

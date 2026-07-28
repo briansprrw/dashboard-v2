@@ -76,16 +76,19 @@ Changing a var requires a redeploy; changing a secret does not.
 
 ### Database schema
 
-Authentication reads and writes the M2 domain tables, so the environment's D1 must be at
-**schema version 2** or higher. Check before expecting sign-in to work:
+Authentication reads and writes the M2 domain tables, including `user_identities.subject_pending`
+(added by `0004_identity_subject_pending.sql`, M2-FQA-RR-01), so the environment's D1 must be at
+**exactly schema version 3** — `/api/v1/health` compares the stored version against
+`EXPECTED_SCHEMA_VERSION` for equality, not "at least." Check before expecting sign-in to work:
 
 ```sh
 npx wrangler d1 execute DASH2_DB --env preview --remote \
   --command "SELECT MAX(version) AS v FROM schema_version"
 ```
 
-If it reports `1`, apply the migrations (a gated production mutation — see
-`docs/runbooks/preview-deployment.md`):
+If it reports anything other than `3` — including `1` (no domain schema) or `2` (the current known
+`dash2-preview` state: `0002`/`0003` applied, `0004` not yet applied) — apply the migrations (a gated
+production mutation — see `docs/runbooks/preview-deployment.md`):
 
 ```sh
 npx wrangler d1 migrations apply DASH2_DB --env preview --remote

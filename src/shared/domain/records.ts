@@ -47,6 +47,8 @@ export interface UserIdentityRecord {
   userId: string;
   emailNormalized: string;
   emailDisplay: string;
+  /** True until a real verified subject is bound; permanently false afterward (M2-FQA-RR-01). */
+  subjectPending: boolean;
   createdAt: number;
   updatedAt: number;
 }

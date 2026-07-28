@@ -14,6 +14,7 @@
 
 import type { UserRecord } from '../../shared/domain/records';
 import { isAuthEligibleState } from '../../shared/domain/enums';
+import { LIMITS } from '../../shared/domain/limits';
 import type { UserRepository } from '../repositories/user-repository';
 import type { IdentityProviderClient, ProviderProfile } from './identity-provider';
 import { ProviderExchangeError } from './identity-provider';
@@ -57,9 +58,14 @@ export interface SignInResult {
  * Only same-origin absolute paths are accepted as a post-login destination.
  * Rejects protocol-relative (`//evil.example`) and absolute URLs, which would
  * turn the callback into an open redirect.
+ *
+ * Bounded to `LIMITS.redirectPath` (Codex M2-QA-04): `startSignIn` is
+ * unauthenticated, so without a bound an anonymous caller could inflate the
+ * size of every OAuth-state record it causes to be written to KV.
  */
 export function sanitizeRedirectPath(candidate: string | null | undefined): string {
   if (typeof candidate !== 'string' || candidate.length === 0) return '/';
+  if (candidate.length > LIMITS.redirectPath.max) return '/';
   if (!candidate.startsWith('/')) return '/';
   if (candidate.startsWith('//')) return '/';
   if (candidate.includes('\\')) return '/';
@@ -132,9 +138,30 @@ export class AuthService {
    *
    * The lookup is by provider subject first — the stable identifier — falling
    * back to a normalised email match for an account migrated from V1 that has
-   * not yet signed in and therefore has no `provider_subject` binding. When the
-   * fallback matches, the identity row is created, binding that subject to the
-   * account permanently.
+   * not yet signed in and therefore holds only a placeholder `provider_subject`
+   * with `subject_pending = true` (M6's importer is the only writer of that
+   * placeholder; it does not exist yet, but the identity table's shape
+   * already requires *some* subject value, since the column is non-null and
+   * part of the primary key).
+   *
+   * When the fallback matches a **pending** identity, this *rebinds* it in
+   * place (`rebindProviderSubject`) rather than inserting a second row
+   * (M2-FQA-01). A plain `INSERT` here always collided with the placeholder
+   * row it should have replaced, because `email_normalized` is globally
+   * unique — the fallback match and the insert target the same email by
+   * construction, so the only migrated-user sign-in path this method exists
+   * for could never succeed on its first real login.
+   *
+   * `subject_pending` is what makes the bind one-way (M2-FQA-RR-01). The
+   * first version of this fix rebound *any* row whose stored subject
+   * differed from the presented one, with no concept of "already
+   * permanently bound" — so a reassigned Workspace email, an OAuth-client
+   * subject change, or any other same-email/different-subject condition
+   * could silently move an existing account to a different real person, and
+   * repeating the process could move it back. A fallback match against an
+   * identity that is *not* pending and whose subject differs from the one
+   * presented is therefore refused outright, the same denial as no match at
+   * all — it never attempts a rebind.
    */
   private async resolveEligibleUser(profile: ProviderProfile, now: number): Promise<UserRecord> {
     const emailNormalized = normalizeEmail(profile.email);
@@ -145,28 +172,49 @@ export class AuthService {
       const identity = await this.deps.users.findIdentityByEmail(emailNormalized);
       if (identity === null) throw new AuthenticationFailure('no_account');
 
-      user = await this.deps.users.findById(identity.userId);
-      if (user === null) throw new AuthenticationFailure('no_account');
-
-      // Bind this provider subject to the migrated account, but only if the
-      // account has none for this provider yet. `createIdentity` would violate
-      // the primary key otherwise, which is the correct outcome: two subjects
-      // must not map to one account silently.
       if (identity.providerSubject !== profile.subject) {
-        const existing = await this.deps.users.findIdentityByProviderSubject(
+        if (!identity.subjectPending) {
+          // The email is known but its identity is already permanently bound
+          // to a different subject: refuse, do not rebind.
+          throw new AuthenticationFailure('no_account');
+        }
+
+        // Defense in depth, not the normal path: `findByProviderIdentity`
+        // above already resolves a genuinely-claimed subject directly, so in
+        // practice this only ever finds `null` here. Kept as an explicit
+        // fail-closed guard rather than relying on that agreement holding
+        // forever — a future change to either lookup must not be able to
+        // silently reassign a subject that is genuinely claimed elsewhere.
+        const claimedBy = await this.deps.users.findIdentityByProviderSubject(
           profile.provider,
           profile.subject
         );
-        if (existing === null) {
-          await this.deps.users.createIdentity({
+        if (claimedBy !== null && claimedBy.userId !== identity.userId) {
+          throw new AuthenticationFailure('no_account');
+        }
+
+        if (claimedBy === null) {
+          const rebound = await this.deps.users.rebindProviderSubject({
             provider: profile.provider,
-            providerSubject: profile.subject,
-            userId: user.id,
-            emailNormalized,
+            oldProviderSubject: identity.providerSubject,
+            newProviderSubject: profile.subject,
             emailDisplay: profile.email,
             now,
           });
+          // The placeholder row was no longer at the subject/pending state
+          // just read — a concurrent sign-in already rebound it, or it was
+          // never pending. Re-resolve by the now-real subject rather than
+          // assuming this attempt's outcome.
+          if (!rebound) {
+            user = await this.deps.users.findByProviderIdentity(profile.provider, profile.subject);
+            if (user === null) throw new AuthenticationFailure('no_account');
+          }
         }
+      }
+
+      if (user === null) {
+        user = await this.deps.users.findById(identity.userId);
+        if (user === null) throw new AuthenticationFailure('no_account');
       }
     }
 

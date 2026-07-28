@@ -1,14 +1,14 @@
 # Dash2
 
-> **Work in progress — server foundation stage.** M0 (product/architecture decisions) and M1 (repository foundation, local dev, CI, isolated preview deployment) are accepted. M2 (domain, authentication, authorization) is in progress. There is **no user-facing application yet** — the dashboard UI is M3. Expect frequent, breaking changes to everything in here, including this README.
+> **Work in progress — server foundation stage.** M0 (product/architecture decisions), M1 (repository foundation, local dev, CI, isolated preview deployment), and M2 (domain, authentication, authorization) are accepted. There is **no user-facing application yet** — the dashboard UI is M3. Expect frequent, breaking changes to everything in here, including this README.
 
 Dash2 is the planned clean successor to Dashboard V1. This directory is intentionally separate from the live V1 repository so product decisions, architecture, implementation, migration, and launch can proceed without changing V1.
 
 ## Current status
 
-**M2 in progress.** M0 and M1 are accepted; the isolated `dash2-preview` environment has been deployed to and its rollback path rehearsed.
+**M2 accepted.** M0, M1, and M2 are accepted; the isolated `dash2-preview` environment has been deployed to and its rollback path rehearsed.
 
-M2 delivers the server-side domain foundation. Packets M2.1 (schema and repositories), M2.2 (policy/service layer), and M2.4 (contracts and protected-content boundaries) are implemented and awaiting independent QA. M2.3 (OAuth and sessions) is implemented with its live provider exchange still being verified. M2.5 (adversarial security review) has not run — until it does, the authorization layer should be read as tested-by-construction rather than independently validated.
+M2 delivered the server-side domain foundation: schema and repositories, the policy/service authorization layer, OAuth and sessions, and contracts/protected-content boundaries. Independent QA went through several rounds — an adversarial security review and multiple follow-on QA passes found and closed a series of authorization and privacy gaps, most notably that acquiring ownership of a List or task could be used to bypass the private-content boundary, and that private-note write access was not fully scoped to owners. All findings from that process are resolved and covered by regression tests. One item is intentionally still open and was accepted as a known gap rather than a blocker: the live Google OAuth callback/token-exchange leg has not yet been exercised against a real Google account, and the `dash2-preview` database has not yet received the migration a resolved finding requires (`user_identities.subject_pending`) — both are deferred to a later work wave, not abandoned.
 
 What exists today is a private JSON API at `/api/v1`: Google sign-in with opaque server-side sessions, server-enforced Viewer/Editor/Owner/Admin permissions, private tasks and notes, and the recycle-bin lifecycle. The glanceable dashboard UI that defines the product arrives in M3.
 
@@ -56,4 +56,4 @@ Dashboard V1 remains at `C:\Users\Brian\Github\dashboard` and stays the live sou
 
 Licensed under the [PolyForm Noncommercial License 1.0.0](./LICENSE). Free for any noncommercial use — personal, educational, research, hobby, and use by charitable/nonprofit, educational, and government organizations. Commercial use is not permitted under this license.
 
-**Last updated:** 2026-07-25
+**Last updated:** 2026-07-27

@@ -37,19 +37,3 @@ export async function hashToken(token: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
   return base64UrlEncode(new Uint8Array(digest));
 }
-
-/**
- * Length-independent constant-time-ish comparison for two same-length strings.
- *
- * Lookups in this codebase are by hashed key rather than by scanning, so a
- * timing signal is not the primary defence — but comparing hashes with `===`
- * would be a gratuitous side channel, and this costs nothing.
- */
-export function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return diff === 0;
-}

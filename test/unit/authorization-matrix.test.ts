@@ -4,6 +4,7 @@ import type { Actor, SheetAccessContext } from '../../src/server/policy';
 import {
   adminMayReadProtectedContent,
   canAdministerAccounts,
+  canAssignOwnershipTo,
   canManageMembership,
   canManageSheetLifecycle,
   canMoveTask,
@@ -16,6 +17,10 @@ import {
   canTransferOwnership,
   canWriteTask,
   canWriteTasks,
+  moveAcquiresOwnership,
+  moveChangesTaskOwner,
+  moveRelinquishesOwnership,
+  moveTaskDecision,
   resolveAccessLevel,
   visibleTasksFor,
 } from '../../src/server/policy';
@@ -301,17 +306,19 @@ describe('ineligible accounts lose every right', () => {
 });
 
 describe('task move requires rights on both Lists', () => {
+  // Same owner on both ends, so the ownership-boundary rule below is not in
+  // play here — this block isolates the write-rights precondition alone.
   const source: SheetAccessContext = { ownerUserId: OWNER_ID, membershipRole: 'editor' };
   const writableDestination: SheetAccessContext = {
-    ownerUserId: 'other-owner',
+    ownerUserId: OWNER_ID,
     membershipRole: 'editor',
   };
   const readOnlyDestination: SheetAccessContext = {
-    ownerUserId: 'other-owner',
+    ownerUserId: OWNER_ID,
     membershipRole: 'viewer',
   };
   const unreachableDestination: SheetAccessContext = {
-    ownerUserId: 'other-owner',
+    ownerUserId: OWNER_ID,
     membershipRole: null,
   };
 
@@ -330,6 +337,125 @@ describe('task move requires rights on both Lists', () => {
   it('denies a move when the source is read-only even if the destination is writable', () => {
     const readOnlySource: SheetAccessContext = { ownerUserId: OWNER_ID, membershipRole: 'viewer' };
     expect(canMoveTask(actors.editor, readOnlySource, writableDestination)).toBe(false);
+  });
+});
+
+// M2.5 adversarial review. Ownership is what grants protected-content reads in
+// this model, so any path that lets an actor *become* the owner of content they
+// did not own is a privacy bypass regardless of which role walked it.
+describe('a move may not acquire ownership of another owner List content', () => {
+  const foreignSource: SheetAccessContext = { ownerUserId: OWNER_ID, membershipRole: 'editor' };
+
+  function ownedBy(actor: Actor): SheetAccessContext {
+    return { ownerUserId: actor.userId, membershipRole: null };
+  }
+
+  it('denies an editor pulling a shared task into a List they own', () => {
+    expect(canMoveTask(actors.editor, foreignSource, ownedBy(actors.editor))).toBe(false);
+    expect(moveAcquiresOwnership(actors.editor, foreignSource, ownedBy(actors.editor))).toBe(true);
+  });
+
+  it('denies an admin pulling a task into a List they own', () => {
+    const adminSource: SheetAccessContext = { ownerUserId: OWNER_ID, membershipRole: null };
+    expect(canMoveTask(actors.admin, adminSource, ownedBy(actors.admin))).toBe(false);
+  });
+
+  it('allows moving between two Lists the actor owns', () => {
+    const first: SheetAccessContext = { ownerUserId: actors.editor.userId, membershipRole: null };
+    expect(canMoveTask(actors.editor, first, ownedBy(actors.editor))).toBe(true);
+    expect(moveAcquiresOwnership(actors.editor, first, ownedBy(actors.editor))).toBe(false);
+  });
+
+  it('allows an admin moving between two Lists owned by the same other person', () => {
+    const a: SheetAccessContext = { ownerUserId: OWNER_ID, membershipRole: null };
+    const b: SheetAccessContext = { ownerUserId: OWNER_ID, membershipRole: null };
+    expect(canMoveTask(actors.admin, a, b)).toBe(true);
+  });
+});
+
+// Brian's decision, 2026-07-26, resolving M2.5's open question on M2-AR-01:
+// a cross-owner move is a privacy-relevant action even when the mover
+// acquires nothing. It is allowed only for the source List's owner giving
+// their own task away, and only once explicitly confirmed; every other
+// cross-owner move is a hard denial with no confirmation escape hatch.
+describe('a move that crosses an ownership boundary needs the source owner to confirm', () => {
+  function ownedBy(actor: Actor): SheetAccessContext {
+    return { ownerUserId: actor.userId, membershipRole: null };
+  }
+  const foreignSource: SheetAccessContext = { ownerUserId: OWNER_ID, membershipRole: 'editor' };
+
+  it('moveChangesTaskOwner is true only when the two owners differ', () => {
+    expect(moveChangesTaskOwner(foreignSource, foreignSource)).toBe(false);
+    expect(moveChangesTaskOwner(foreignSource, ownedBy(actors.editor))).toBe(true);
+  });
+
+  it('moveRelinquishesOwnership is true only for the source owner giving their own task away', () => {
+    const own: SheetAccessContext = { ownerUserId: actors.editor.userId, membershipRole: null };
+    expect(moveRelinquishesOwnership(actors.editor, own, foreignSource)).toBe(true);
+    // The mover does not own the source: this is acquisition or a third-party
+    // hop, not a relinquish, regardless of who owns the destination.
+    expect(moveRelinquishesOwnership(actors.editor, foreignSource, own)).toBe(false);
+  });
+
+  it('canMoveTask allows giving one of your own tasks to a List you edit (confirmation is a separate gate)', () => {
+    const own: SheetAccessContext = { ownerUserId: actors.editor.userId, membershipRole: null };
+    expect(canMoveTask(actors.editor, own, foreignSource)).toBe(true);
+  });
+
+  it('denies an editor moving a task between two Lists owned by two different other people', () => {
+    const otherOwnerSheet: SheetAccessContext = {
+      ownerUserId: 'other-owner',
+      membershipRole: 'editor',
+    };
+    expect(canMoveTask(actors.editor, foreignSource, otherOwnerSheet)).toBe(false);
+  });
+
+  it('moveTaskDecision requires confirmation for the source owner relinquishing their task', () => {
+    const own: SheetAccessContext = { ownerUserId: actors.editor.userId, membershipRole: null };
+    expect(moveTaskDecision(actors.editor, own, foreignSource, false)).toEqual({
+      kind: 'requiresConfirmation',
+    });
+    expect(moveTaskDecision(actors.editor, own, foreignSource, true)).toEqual({ kind: 'allowed' });
+  });
+
+  it('moveTaskDecision never allows ownership acquisition, confirmed or not', () => {
+    expect(moveTaskDecision(actors.editor, foreignSource, ownedBy(actors.editor), true)).toEqual({
+      kind: 'denied',
+    });
+  });
+
+  it('moveTaskDecision needs no confirmation for a same-owner move', () => {
+    expect(moveTaskDecision(actors.editor, foreignSource, foreignSource, false)).toEqual({
+      kind: 'allowed',
+    });
+  });
+});
+
+describe('ownership may not be assigned to the actor themselves', () => {
+  it('denies an admin naming themselves the new owner of a List they do not own', () => {
+    expect(canAssignOwnershipTo(actors.admin, SHEET, actors.admin.userId)).toBe(false);
+  });
+
+  it('allows an admin reassigning a List to a third party', () => {
+    expect(canAssignOwnershipTo(actors.admin, SHEET, 'user-successor')).toBe(true);
+  });
+
+  it('allows the owner to name anyone else, and is a no-op for themselves', () => {
+    expect(canAssignOwnershipTo(actors.owner, SHEET, 'user-successor')).toBe(true);
+    // Permitted at policy level; the service rejects it as ALREADY_OWNER.
+    expect(canAssignOwnershipTo(actors.owner, SHEET, OWNER_ID)).toBe(true);
+  });
+
+  it('denies every role that could not transfer in the first place', () => {
+    for (const role of ['viewer', 'editor', 'stranger', 'disabled', 'recycled'] as const) {
+      expect(canAssignOwnershipTo(actors[role], contextFor(role), actors[role].userId)).toBe(false);
+    }
+  });
+
+  it('denies a disabled admin naming themselves', () => {
+    expect(canAssignOwnershipTo(actors.disabledAdmin, SHEET, actors.disabledAdmin.userId)).toBe(
+      false
+    );
   });
 });
 
