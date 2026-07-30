@@ -6,7 +6,19 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['dist/**', '.wrangler/**', 'node_modules/**', 'coverage/**'],
+    // `test-results/`/`playwright-report/` hold Playwright's generated HTML
+    // report and trace viewer bundles (already gitignored). They only exist
+    // after a run that retains a trace, so linting them made `npm run lint`
+    // pass on a clean checkout and fail with thousands of errors in bundled
+    // third-party JS immediately after any e2e failure.
+    ignores: [
+      'dist/**',
+      '.wrangler/**',
+      'node_modules/**',
+      'coverage/**',
+      'test-results/**',
+      'playwright-report/**',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

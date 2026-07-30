@@ -5,7 +5,12 @@
     // `test/integration/**` runs inside workerd against a real D1 database, so
     // this project needs the Workers globals and the `cloudflare:test` module
     // declarations alongside the Node types the config files use.
-    "types": ["node", "@cloudflare/workers-types", "@cloudflare/vitest-pool-workers/types"]
+    "types": ["node", "@cloudflare/workers-types", "@cloudflare/vitest-pool-workers/types"],
+    // `test/web/**` renders React components against jsdom (M3.1), so this
+    // project also needs DOM lib and the JSX transform alongside the Workers
+    // types the integration tests use.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx"
   },
   "references": [{ "path": "./tsconfig.worker.json" }, { "path": "./tsconfig.app.json" }],
   "include": [

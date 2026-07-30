@@ -1,8 +1,1562 @@
-:root {
-  color-scheme: light dark;
+/*
+ * Dash2 design system.
+ *
+ * This file is the single source of the approved visual language
+ * (`docs/mockups/dash2.html`, rendered references under
+ * `docs/mockups/reference/`). It is organized as tokens -> base elements ->
+ * components, deliberately: the prior version of this file styled only the
+ * handful of elements a specific acceptance criterion or QA finding named
+ * (task rows, clock header, icon badges, menu button) and left every other
+ * surface — page frame, section headers, buttons, fields, dialogs, the whole
+ * settings panel — at browser defaults, which is why the rendered app read as
+ * unstyled HTML rather than as the approved design (Brian's Gate B verdict,
+ * M3-DEF-11/M3.6-QA-07: "that's nothing like the mockup"). Styling elements
+ * by tag here, before any component class, is what makes the design language
+ * the default rather than something each component has to opt into.
+ *
+ * No rule in this file uses `transition` or `@keyframes`. That is a
+ * requirement, not an omission: `test/e2e/zoom-and-motion.spec.ts` asserts the
+ * app ships no motion CSS, so reduced-motion contexts have nothing to
+ * suppress. State changes (hover, checked, collapsed) therefore apply
+ * instantly.
+ *
+ * Nothing here depends on `:hover` alone to reveal an affordance — every
+ * control is a real focusable element with a persistent visible resting
+ * state, so no-hover/touch contexts (smart frame, tablet, phone) never lose
+ * access to a control (`test/e2e/no-hover.spec.ts`).
+ */
+
+/* ==========================================================================
+   1. Tokens
+   ==========================================================================
+   The base set is the Dark theme, which is also the approved default, so an
+   absent or unrecognized `[data-theme]` still renders the intended design
+   (the loading/logged-out/error shells render before preferences resolve and
+   carry no `data-theme` at all).
+ */
+
+.app {
+  /* Surfaces, page-background outward to raised-panel inward. */
+  --page-bg: #050506;
+  --bg: #0c0c0e;
+  --panel: #17171a;
+  --panel-raised: #1e1e22;
+  --panel-border: #2b2b30;
+
+  /* Form fields and pressable controls. */
+  --field-bg: #232327;
+  --control-bg: #232327;
+  --control-border: #3d3d45;
+  --control-fg: #dddde2;
+
+  /*
+   * Text ramp. `--text-faint` is #8a8a94 rather than the mockup's #6b6b74:
+   * measured against `--bg` the mockup value is 3.71:1, below the WCAG AA
+   * 4.5:1 minimum for normal-size text, and it is used for real text (section
+   * counts, empty-state notes, field captions) rather than decoration. This
+   * value measures 5.7:1 and is the nearest faithful substitute.
+   */
+  --text: #f2f2f4;
+  --text-dim: #9a9aa2;
+  --text-faint: #8a8a94;
+
+  /*
+   * Two accent tokens, not one. `--accent` is a *fill* that has to carry
+   * white text, and `--accent-text` is accent-colored *text* on the near-black
+   * page — a single value cannot do both. The mockup's #4285F4 measures
+   * 3.56:1 against white text (below the AA 4.5:1 minimum, found by
+   * `test/e2e/accessibility.spec.ts`), so the fill is one step deeper at
+   * 4.76:1 while the text token is one step lighter at 8.1:1 against `--bg`.
+   */
+  --accent: #1f6fe0;
+  --accent-fg: #ffffff;
+  --accent-text: #6ea8ff;
+  --accent-soft-bg: #2c3d63;
+  --accent-soft-border: #3f5a95;
+  --accent-soft-fg: #cfe0ff;
+
+  --danger: #7a2020;
+  --danger-fg: #ffffff;
+  --warn: #e0b64a;
+
+  /* Icon badge behind status/priority glyphs — a fixed contrast surface so a
+     glyph reads identically on every due-band color. */
+  --icon-badge-bg: #000000;
+
+  /*
+   * One control height for every field and button, so a label + input + button
+   * sitting on the same settings row line up instead of each taking its own
+   * intrinsic height. Expressed in `rem` (not `em`) deliberately: it must
+   * resolve against the app's own scale rather than each control's font-size,
+   * which varies. Floored at 44px so a negative zoom step can never shrink a
+   * control below the minimum touch target (M3-DEF-09/M3.6-D2).
+   */
+  --control-h: max(44px, calc(2.75rem * (1 + 0.1 * var(--zoom-step, 0))));
+
+  --radius-lg: 0.875em; /* 14px — task rows, cards */
+  --radius-md: 0.625em; /* 10px */
+  --radius-sm: 0.4375em; /* 7px — icon badges, small fields */
+  --radius-pill: 999px;
+
+  /* Focus ring, drawn with outline so it never affects layout. */
+  --focus-ring: 2px solid #7aa7ff;
+  --focus-ring-offset: 2px;
+}
+
+/*
+ * Darker theme. Per the approved decision (M0.1 V5) this theme carries the
+ * mockup's *second* task style — "B / translucent + border" — while Dark
+ * carries "A / solid bars". The task-row rules in section 8 implement both;
+ * only the surface tokens change here.
+ */
+.app[data-theme='darker'] {
+  --page-bg: #000000;
+  --bg: #06060a;
+  --panel: #101013;
+  --panel-raised: #17171b;
+  --panel-border: #26262b;
+  --field-bg: #1c1c20;
+  --control-bg: #1c1c20;
+  --control-border: #3a3a42;
+}
+
+/*
+ * Light theme. The mockup has no light rendering, so this is a faithful
+ * translation of the same structure rather than an invention: identical
+ * hierarchy and spacing, inverted surface ramp, and due bands re-derived as
+ * light tints carrying dark saturated text (section 8) so the color language
+ * — red urgent, amber near, green far, blue-grey done, neutral undated — is
+ * preserved rather than re-ordered.
+ */
+.app[data-theme='light'] {
+  --page-bg: #eef0f4;
+  --bg: #ffffff;
+  --panel: #f7f8fa;
+  --panel-raised: #ffffff;
+  --panel-border: #d9dce3;
+  --field-bg: #ffffff;
+  --control-bg: #f2f3f6;
+  --control-border: #a9aeb8;
+  --control-fg: #26262c;
+  --text: #111114;
+  --text-dim: #55555f;
+  --text-faint: #6c6c77;
+  --accent: #1a5fd0;
+  --accent-text: #1a5fd0;
+  --accent-soft-bg: #dfe9fb;
+  --accent-soft-border: #9cbdf0;
+  --accent-soft-fg: #12386f;
+  --danger: #a32020;
+  --warn: #8a6100;
+  --icon-badge-bg: #ffffff;
+  --focus-ring: 2px solid #1a5fd0;
+}
+
+/*
+ * High-contrast theme. Pure black/white surfaces, and (section 8) due bands
+ * rendered as a black fill with a heavy saturated border and white text —
+ * the treatment maximizes contrast rather than reproducing either mockup
+ * task style, which is the point of the theme.
+ */
+.app[data-theme='high-contrast'] {
+  --page-bg: #000000;
+  --bg: #000000;
+  --panel: #000000;
+  --panel-raised: #000000;
+  --panel-border: #ffffff;
+  --field-bg: #000000;
+  --control-bg: #000000;
+  --control-border: #ffffff;
+  --control-fg: #ffffff;
+  --text: #ffffff;
+  --text-dim: #ffffff;
+  --text-faint: #e8e8e8;
+  --accent: #4d9dff;
+  --accent-fg: #000000;
+  --accent-text: #4d9dff;
+  --accent-soft-bg: #000000;
+  --accent-soft-border: #ffffff;
+  --accent-soft-fg: #ffffff;
+  --icon-badge-bg: #000000;
+  --focus-ring: 3px solid #ffdd00;
+}
+
+/* ==========================================================================
+   2. Page and reset
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+  background: #050506;
 }
 
 body {
   margin: 0;
-  font-family: system-ui, sans-serif;
+  background: #050506;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * The overscroll gutter outside `.app` belongs to `body`, which sits outside
+ * the themed subtree and so cannot read `--page-bg`. Matching it to the
+ * active theme keeps a light-theme overscroll from flashing near-black.
+ */
+body:has(.app[data-theme='light']) {
+  background: #eef0f4;
+  color-scheme: light;
+}
+body:has(.app[data-theme='high-contrast']),
+body:has(.app[data-theme='darker']) {
+  background: #000000;
+}
+
+/* Scrollbars follow the app's theme instead of the OS default, so a
+   full-bleed smart-frame display has no light-grey OS furniture on it. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #45454c transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: #45454c;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/*
+ * Visually hidden but screen-reader-visible text, used to pair an icon with
+ * its text meaning (status/priority/note icons) so recognition never depends
+ * on the icon or a due-band color alone (AC-G2).
+ */
+.sr-only,
+.task-row__sr-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ==========================================================================
+   3. App frame
+   ========================================================================== */
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  /*
+   * 7-step zoom, -3..+3 at 10% per step (M0 §7). `--zoom-step` is set inline
+   * from the device-local preference; the base font-size scales from it so
+   * every em-based measurement in this file scales with it.
+   */
+  font-size: calc(1rem * (1 + 0.1 * var(--zoom-step, 0)));
+}
+
+.app__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.625em;
+  padding: 1em 1.375em 0.5em;
+}
+
+.app__header-lead {
+  display: flex;
+  align-items: baseline;
+  gap: 0.625em;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.app__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  flex: 0 0 auto;
+}
+
+.app__title {
+  margin: 0;
+  font-size: 1.15em;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.app__body {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-bottom: 2em;
+}
+
+/*
+ * Centered single-message shell for the loading / signed-out / empty / error
+ * states, which previously rendered as bare unstyled paragraphs at the top
+ * left of a black page.
+ */
+.app__state {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.875em;
+  padding: 3em 1.375em;
+  text-align: center;
+  color: var(--text-dim);
+}
+.app__state p {
+  margin: 0;
+  max-width: 32em;
+}
+
+/* ==========================================================================
+   4. Base controls
+   ==========================================================================
+   Styling by tag, so every button and field in the app inherits the design
+   language without its component having to know about it. Component classes
+   below refine; they do not have to start from browser defaults.
+ */
+
+button {
+  font: inherit;
+  font-size: 0.8em;
+  font-weight: 600;
+  color: var(--control-fg);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-md);
+  padding: 0.55em 0.95em;
+  min-height: var(--control-h);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+}
+
+button:hover:not(:disabled) {
+  filter: brightness(1.25);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  font-size: 0.85em;
+  color: var(--text);
+  background: var(--field-bg);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-sm);
+  padding: 0.45em 0.6em;
+  min-height: var(--control-h);
+  min-width: 0;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 4.5em;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  accent-color: var(--accent);
+  width: 1.05em;
+  height: 1.05em;
+  min-height: 0;
+  padding: 0;
+  flex: 0 0 auto;
+}
+
+:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+a {
+  color: var(--accent-text);
+}
+
+/* Emphasis variants, opted into by class. */
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+.btn--danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--danger-fg);
+}
+.btn--quiet {
+  background: transparent;
+  border-color: var(--control-border);
+  color: var(--text-dim);
+}
+.btn--link {
+  background: none;
+  border: none;
+  padding: 0.15em 0.25em;
+  color: var(--accent-text);
+  text-decoration: underline;
+}
+
+/*
+ * Circular icon button — the mockup's `.glance-icon-btn`. Glance mode's menu
+ * affordance is the app's only always-present chrome control, so it is sized
+ * as a real touch target rather than as text.
+ */
+.icon-btn {
+  width: var(--control-h);
+  height: var(--control-h);
+  padding: 0;
+  border-radius: 50%;
+  font-size: 0.95em;
+  background: var(--panel-raised);
+  border: 1px solid var(--control-border);
+  color: var(--control-fg);
+}
+.icon-btn[aria-expanded='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+/* Segmented control — the mockup's `.segmented`. Children stay real
+   `<button aria-pressed>` elements; only the seam between them changes. */
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  background: var(--panel-raised);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.segmented button {
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--text-dim);
+  padding: 0.5em 0.9em;
+}
+.segmented button + button {
+  border-inline-start: 1px solid var(--control-border);
+}
+.segmented button[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+/*
+ * Pill toggle — the mockup's `.toggle`. Built by restyling the real
+ * `<input type="checkbox">` rather than wrapping it in decorative markup, so
+ * it keeps native focus, keyboard operation, and label association.
+ */
+.switch {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 2.375em;
+  height: 1.375em;
+  min-height: 0;
+  border-radius: var(--radius-pill);
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  cursor: pointer;
+  margin: 0;
+}
+.switch::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0.1875em;
+  width: 1em;
+  height: 1em;
+  margin-top: -0.5em;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+.switch:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.switch:checked::after {
+  left: auto;
+  right: 0.1875em;
+  background: #ffffff;
+}
+
+/* Chip / tag — the mockup's `.chip` and `.legend-chip`. */
+.chip {
+  font-size: 0.75em;
+  font-weight: 600;
+  padding: 0.35em 0.75em;
+  border-radius: var(--radius-pill);
+  background: var(--panel-raised);
+  border: 1px solid var(--control-border);
+  color: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+}
+
+/* ==========================================================================
+   5. Cards, rows, banners
+   ========================================================================== */
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-lg);
+  padding: 1.125em 1.25em;
+}
+
+.card__title {
+  margin: 0 0 0.875em;
+  font-size: 0.85em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+/*
+ * Label-on-the-left / control-on-the-right settings row (the mockup's
+ * `.setting-row`). `min-height` keeps the whole row a comfortable pointer and
+ * touch target even when its control is a small switch.
+ */
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1em;
+  min-height: var(--control-h);
+  padding: 0.6em 0;
+  border-bottom: 1px solid var(--panel-border);
+  font-size: 0.85em;
+}
+.setting-row:last-child {
+  border-bottom: none;
+}
+.setting-row__label {
+  min-width: 0;
+}
+.setting-row__desc {
+  display: block;
+  margin-top: 0.15em;
+  font-size: 0.8em;
+  color: var(--text-faint);
+}
+.setting-row__control {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.setting-row__control label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  white-space: nowrap;
+}
+.setting-row__control input[type='number'] {
+  width: 5em;
+}
+.setting-row__control input[type='text'] {
+  width: 4.5em;
+  text-align: center;
+}
+
+/* Radio/checkbox groups laid out as a wrapping row of labelled controls. */
+.control-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75em;
+  flex-wrap: wrap;
+}
+.control-group label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  min-height: var(--control-h);
+  cursor: pointer;
+}
+
+/*
+ * Status banners: offline, stale-data, action error, Undo offer. Previously
+ * bare `<p>` elements indistinguishable from body copy.
+ */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  flex-wrap: wrap;
+  margin: 0 1.375em 0.625em;
+  padding: 0.55em 0.85em;
+  border-radius: var(--radius-md);
+  font-size: 0.8em;
+  border: 1px solid;
+}
+.banner::before {
+  content: '';
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+.banner--warn {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+}
+.banner--error {
+  color: #ff9d9d;
+  border-color: color-mix(in srgb, #ff9d9d 45%, transparent);
+  background: color-mix(in srgb, #ff9d9d 12%, transparent);
+}
+.banner--info {
+  color: var(--accent-soft-fg);
+  border-color: var(--accent-soft-border);
+  background: color-mix(in srgb, var(--accent-soft-bg) 55%, transparent);
+}
+.app[data-theme='light'] .banner--error {
+  color: #9a1c1c;
+  border-color: color-mix(in srgb, #9a1c1c 40%, transparent);
+  background: #fdecec;
+}
+
+/* ==========================================================================
+   6. Sheet sections
+   ========================================================================== */
+
+/*
+ * Automatic 1-3 column flow within the device-local min/max bounds
+ * (M0-D24). `--column-min`/`--column-max` come from preferences via inline
+ * style on `.sheet-columns-container`.
+ *
+ * `container-type` is declared on `.sheet-columns-container`, one level above
+ * the grid itself (`.sheet-columns`), rather than on the grid element: a
+ * `@container` query cannot see the size of the same element that establishes
+ * its own containment context (M3-DEF-06 — found empty during M3.6 evidence
+ * capture; Chromium silently never matches a self-targeting query instead of
+ * erroring, so the bug produced no console warning).
+ *
+ * Neither this element nor any ancestor may take horizontal padding: the
+ * container's own content-box width is what the `@container` breakpoints
+ * below measure, so padding here would silently shift the column
+ * breakpoints that `column-bounds.spec.ts`/`min-yield.spec.ts` pin. Section
+ * inset therefore lives on `.sheet-section` instead.
+ */
+.sheet-columns-container {
+  container-type: inline-size;
+}
+.sheet-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr));
+  gap: 0.25em 0.5em;
+  align-content: start;
+  /*
+   * The mockup insets its section grid by 4px on top of each section's own
+   * 14px, so a task bar's edge sits 18px from the viewport against the
+   * header's 22px. Applied to the grid rather than to
+   * `.sheet-columns-container` on purpose: padding on the container would
+   * shrink the content box its own `@container` queries measure and shift the
+   * column breakpoints. Padding here reduces track width only, which no
+   * breakpoint or test depends on.
+   */
+  padding: 0 0.25em;
+}
+/*
+ * `auto-fill`/`minmax` above already gives continuous automatic flow. The two
+ * breakpoints below are the local min/max *bounds* around that flow
+ * (M0-D24): below the 2-column width the max is clamped to 1, and only once
+ * the container is wide enough for `--column-max` columns does the grid
+ * switch to a fixed column count so it can never exceed that bound. A min of
+ * 2 or 3 with a narrow container is the "min yields" case M3 must expose
+ * (AC-G5) — deliberately not force-applied here, since forcing a firm minimum
+ * at an unsafe width is exactly the unsafe-reflow case the decision
+ * prohibits.
+ *
+ * 40.0625rem (641px), not 40rem (640px): M0.4's VP-2 reference is exactly
+ * 640px wide and must stay one column (found by Codex's independent
+ * M3.6-QA-01 finding — a `min-width: 40rem` query matches inclusively at
+ * exactly 640px, so VP-2 was rendering 2 cramped columns instead of the
+ * approved single-column narrow layout).
+ */
+@container (min-width: 40.0625rem) {
+  .sheet-columns {
+    grid-template-columns: repeat(min(2, var(--column-max, 3)), 1fr);
+  }
+}
+@container (min-width: 60rem) {
+  .sheet-columns {
+    grid-template-columns: repeat(min(3, var(--column-max, 3)), 1fr);
+  }
+}
+
+.sheet-section {
+  min-width: 0;
+  padding: 0.25em 0.875em;
+}
+
+/*
+ * Section heading: a small dimmed uppercase tracking label, not a large
+ * white page-level heading. This is the mockup's `.section-head` — in Glance
+ * mode the sheet name is an orientation label above the bars, so it must
+ * recede relative to the task rows, which carry the information.
+ */
+.sheet-section__title {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin: 0;
+  padding: 0.625em 0.5em 0.375em;
+  font-size: 0.75em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-dim);
+}
+
+.sheet-section__collapse-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  min-height: var(--control-h);
+  padding: 0 0.25em 0 0;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.sheet-section__collapse-toggle:hover:not(:disabled) {
+  filter: none;
+  color: var(--text);
+}
+
+.sheet-section__chev {
+  font-size: 0.85em;
+  color: var(--text-faint);
+  /* Rotated, not animated — see the no-motion note at the top of this file. */
+  transform: rotate(0deg);
+}
+.sheet-section[data-collapsed='true'] .sheet-section__chev {
+  transform: rotate(-90deg);
+}
+
+.sheet-section__name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sheet-section__count {
+  font-size: 0.9em;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--text-faint);
+  margin-inline-end: auto;
+}
+
+/* The create affordance sits in the heading row and must stay subordinate to
+   it — a quiet outline button, not a filled call to action. */
+.sheet-section__create {
+  font-size: 0.9em;
+  padding: 0.4em 0.7em;
+  background: transparent;
+  border-color: var(--control-border);
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+  flex: 0 0 auto;
+}
+
+.sheet-section[data-collapsed='true'] .sheet-section__tasks,
+.sheet-section[data-collapsed='true'] .sheet-section__empty {
+  display: none;
+}
+
+.sheet-section__tasks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3125em;
+}
+
+.sheet-section__empty {
+  margin: 0;
+  padding: 0.375em 0.875em 0.75em;
+  font-size: 0.75em;
+  color: var(--text-faint);
+}
+
+/* ==========================================================================
+   7. Task row grammar
+   ==========================================================================
+   [status][name][note][flags][due][priority][actions]
+ */
+
+.task-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.625em;
+  min-height: 2.875em; /* 46px at zoom 0 — the mockup's row height */
+  padding: 0.3em 0.875em;
+  border-radius: var(--radius-lg);
+  font-size: 0.875em;
+  /* Set per band in section 8; a row with no recognized band stays neutral. */
+  background: var(--band-bg, var(--panel-raised));
+  color: var(--band-fg, var(--text));
+  border: 1.5px solid var(--band-line, transparent);
+}
+
+.task-row:hover {
+  filter: brightness(1.08);
+}
+
+.task-row__name {
+  flex: 1 1 8em;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+/*
+ * Status/priority icon badges: a fixed-contrast rounded-square behind the
+ * glyph, so the icon reads the same regardless of which due-band color the
+ * row is painted. `grid`/`place-items:center` centers by the glyph's content
+ * box directly, avoiding the baseline-offset issues some emoji (e.g. ⚠️) have
+ * under flex/inline-block centering — this matters because these icons are
+ * user-configurable, so per-glyph padding tuning is not an option.
+ */
+.task-row__icon-badge {
+  flex: 0 0 auto;
+  width: 1.5em;
+  height: 1.5em;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: var(--icon-badge-bg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  font-size: 0.95em;
+  line-height: 1;
+}
+.task-row__priority {
+  width: 1.4em;
+  height: 1.4em;
+  font-size: 0.85em;
+}
+
+/*
+ * Trailing metadata as one unit, so a row that must wrap (high zoom, or the
+ * narrowest two-column track) breaks into two coherent lines instead of
+ * shedding one badge at a time. See the matching comment in `TaskRow.tsx`.
+ */
+.task-row__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.task-row__note,
+.task-row__flags {
+  flex: 0 0 auto;
+  font-size: 0.8em;
+  opacity: 0.85;
+  line-height: 1;
+}
+
+/*
+ * Due indicator: the mockup's dark tabular-numeral pill. The pill shows the
+ * date; the band word ("Overdue", "Due soon", …) stays visible inside it but
+ * typographically subordinate. The mockup renders the date alone and lets
+ * color carry the band, which AC-G2 does not allow ("recognition never
+ * depends on color alone"), so the label is kept and de-emphasized rather
+ * than dropped — a deliberate, documented divergence from the mockup.
+ */
+.task-row__due {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.375em;
+  padding: 0.15em 0.5em;
+  border-radius: var(--radius-sm);
+  background: var(--due-pill-bg, rgba(0, 0, 0, 0.28));
+  font-variant-numeric: tabular-nums;
+}
+.task-row__due-date {
+  font-size: 0.85em;
+  font-weight: 700;
+}
+.task-row__due-label {
+  font-size: 0.75em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/*
+ * Minimum touch targets (M3-DEF-09/M3.6-D2): 44x44px, Brian's decision
+ * (iOS HIG / Material / WCAG 2.5.5 AAA convention) rather than the lower
+ * WCAG 2.5.8 (AA) 24px floor.
+ *
+ * Two earlier approaches were tried and rejected: enlarging each button's own
+ * visible padding (tripled row height, undercutting Glance density, M3-R1);
+ * and an invisible 44x44 `::before` hit area (Codex's re-review reproduced a
+ * real click on the visibly-rendered Move button activating the overlapping
+ * Recycle zone at narrow widths — silent action misrouting, not just a
+ * coverage gap).
+ *
+ * This is the corrected approach: real, guaranteed geometry. An explicit flex
+ * row with a `gap` at least as large as the target, and a real
+ * `min-width`/`min-height` on every button, so the clickable area *is* the
+ * rendered element and there is no separate geometry to drift. `flex-basis:
+ * 100%` puts the buttons on their own full-width line rather than letting
+ * them be squeezed into whatever narrow column remains after
+ * `.task-row__name` claims its space — that squeeze is what previously wrapped
+ * them onto four separate lines. This costs row height when actions are
+ * visible (Standard mode, writable rows only — Glance mode renders no per-row
+ * actions, so its density is unaffected), which is an honest trade-off rather
+ * than a trick that can silently fail. `test/e2e/touch-targets.spec.ts` pins
+ * both the size and the zero-overlap property.
+ */
+.task-row__actions {
+  display: flex;
+  flex-basis: 100%;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.task-row__actions button {
+  min-width: 44px;
+  min-height: 44px;
+  font-size: 0.75em;
+  background: rgba(0, 0, 0, 0.3);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: inherit;
+}
+.app[data-theme='light'] .task-row__actions button {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: rgba(0, 0, 0, 0.25);
+}
+
+/* ==========================================================================
+   8. Due bands
+   ==========================================================================
+   Each band is a (background, foreground, line) triple. The values are the
+   approved mockup's, including its *ordering* of the color language:
+   overdue and today are reds, near-term is amber, further-out is green, done
+   is a receding blue-grey, and undated is neutral. A prior implementation
+   inverted part of this (soonish rendered blue, future grey, and complete a
+   bright saturated green) which put the loudest color in the app on the rows
+   needing no attention — the opposite of the Glance hierarchy.
+   Every band also carries a visible text label (section 7), so color is
+   always reinforcement and never the sole signal (AC-G2).
+ */
+
+[data-due-band='overdue'] {
+  --band-bg: #7a1414;
+  --band-fg: #ffffff;
+  --band-line: #a52a2a;
+}
+.task-row[data-due-band='overdue'] {
+  font-weight: 700;
+  /* The mockup's `.emph` treatment — overdue is the one band that has to win
+     against every other color on screen. */
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.45);
+}
+.app[data-theme='light'] .task-row[data-due-band='overdue'] {
+  box-shadow: inset 0 0 0 2px rgba(138, 16, 16, 0.35);
+}
+.app[data-theme='high-contrast'] .task-row[data-due-band='overdue'] {
+  box-shadow: inset 0 0 0 2px #ffffff;
+}
+[data-due-band='today'] {
+  --band-bg: #b21f1f;
+  --band-fg: #ffffff;
+  --band-line: #b21f1f;
+}
+.task-row[data-due-band='today'] {
+  font-weight: 600;
+}
+[data-due-band='soon'] {
+  --band-bg: #7a5b00;
+  --band-fg: #ffffff;
+  --band-line: #7a5b00;
+}
+[data-due-band='soonish'] {
+  --band-bg: #0f5c33;
+  --band-fg: #ffffff;
+  --band-line: #0f5c33;
+}
+[data-due-band='future'] {
+  --band-bg: #14532d;
+  --band-fg: #d7f5df;
+  --band-line: #14532d;
+}
+/*
+ * Complete recedes rather than competing. The mockup dims the whole row to
+ * 0.7 opacity; 0.85 is used instead because at 0.7 the composited
+ * foreground/background pair measures 4.73:1 — over the AA line, but with no
+ * margin for the theme and zoom variations this row also has to survive. At
+ * 0.85 it measures 6.25:1 and still reads as clearly de-emphasized.
+ */
+[data-due-band='complete'] {
+  --band-bg: #1c2c46;
+  --band-fg: #a9c4f5;
+  --band-line: #1c2c46;
+}
+.task-row[data-due-band='complete'] {
+  opacity: 0.85;
+}
+[data-due-band='unscheduled'] {
+  --band-bg: #232327;
+  --band-fg: #b9b9c0;
+  --band-line: #3a3a42;
+}
+
+/*
+ * Darker theme = the mockup's task style B: transparent-tinted fill with the
+ * band color carried by a solid border and by brighter text, instead of a
+ * solid fill (M0.1 V5).
+ */
+.app[data-theme='darker'] .task-row {
+  background: color-mix(in srgb, var(--band-bg) 22%, transparent);
+  color: var(--band-tint-fg, var(--band-fg));
+  border-color: var(--band-line);
+}
+.app[data-theme='darker'] [data-due-band='overdue'] {
+  --band-tint-fg: #ffb3b3;
+}
+.app[data-theme='darker'] .task-row[data-due-band='overdue'] {
+  border-width: 2px;
+}
+.app[data-theme='darker'] [data-due-band='today'] {
+  --band-tint-fg: #ff9d9d;
+}
+.app[data-theme='darker'] [data-due-band='soon'] {
+  --band-tint-fg: #f3d576;
+}
+.app[data-theme='darker'] [data-due-band='soonish'] {
+  --band-tint-fg: #7be0ab;
+}
+.app[data-theme='darker'] [data-due-band='future'] {
+  --band-tint-fg: #8fe3ac;
+}
+.app[data-theme='darker'] [data-due-band='complete'] {
+  --band-tint-fg: #9db9ea;
+}
+.app[data-theme='darker'] [data-due-band='unscheduled'] {
+  --band-tint-fg: #b9b9c0;
+}
+.app[data-theme='darker'] .task-row[data-due-band='unscheduled'] {
+  background: color-mix(in srgb, var(--band-bg) 40%, transparent);
+}
+.app[data-theme='darker'] .task-row__due {
+  --due-pill-bg: rgba(0, 0, 0, 0.35);
+}
+
+/*
+ * Light theme bands: the same color language re-derived as light tints with
+ * dark saturated text. Not a mockup rendering (none exists for light) — a
+ * translation that preserves the hierarchy and meets AA on every pair.
+ */
+.app[data-theme='light'] [data-due-band='overdue'] {
+  --band-bg: #fbe4e4;
+  --band-fg: #8a1010;
+  --band-line: #d88b8b;
+}
+.app[data-theme='light'] [data-due-band='today'] {
+  --band-bg: #fcdada;
+  --band-fg: #9a1414;
+  --band-line: #d06a6a;
+}
+.app[data-theme='light'] [data-due-band='soon'] {
+  --band-bg: #fbf0cd;
+  --band-fg: #6b5000;
+  --band-line: #d4b559;
+}
+.app[data-theme='light'] [data-due-band='soonish'] {
+  --band-bg: #d9f2e3;
+  --band-fg: #0d5c33;
+  --band-line: #77c69b;
+}
+.app[data-theme='light'] [data-due-band='future'] {
+  --band-bg: #e3f5ea;
+  --band-fg: #14532d;
+  --band-line: #92d1ab;
+}
+.app[data-theme='light'] [data-due-band='complete'] {
+  --band-bg: #e6ecf7;
+  --band-fg: #2b4470;
+  --band-line: #a9bfe0;
+}
+.app[data-theme='light'] [data-due-band='unscheduled'] {
+  --band-bg: #eeeef1;
+  --band-fg: #4a4a55;
+  --band-line: #cfcfd6;
+}
+.app[data-theme='light'] .task-row__due {
+  --due-pill-bg: rgba(0, 0, 0, 0.05);
+}
+
+/*
+ * High-contrast theme: black fill, heavy saturated band border, white text.
+ * Neither mockup task style — the theme's whole purpose is maximum
+ * separation, which a tinted or solid fill would work against.
+ */
+.app[data-theme='high-contrast'] .task-row {
+  background: #000000;
+  color: #ffffff;
+  border-width: 3px;
+  border-color: var(--band-hc-line, #ffffff);
+  opacity: 1;
+}
+.app[data-theme='high-contrast'] [data-due-band='overdue'] {
+  --band-hc-line: #ff5c5c;
+}
+.app[data-theme='high-contrast'] [data-due-band='today'] {
+  --band-hc-line: #ff8a8a;
+}
+.app[data-theme='high-contrast'] [data-due-band='soon'] {
+  --band-hc-line: #ffd24d;
+}
+.app[data-theme='high-contrast'] [data-due-band='soonish'] {
+  --band-hc-line: #5ce6a0;
+}
+.app[data-theme='high-contrast'] [data-due-band='future'] {
+  --band-hc-line: #8affc0;
+}
+.app[data-theme='high-contrast'] [data-due-band='complete'] {
+  --band-hc-line: #8ab8ff;
+}
+.app[data-theme='high-contrast'] [data-due-band='unscheduled'] {
+  --band-hc-line: #ffffff;
+}
+.app[data-theme='high-contrast'] .task-row__due {
+  --due-pill-bg: transparent;
+}
+
+/* ==========================================================================
+   9. Clock / date header
+   ==========================================================================
+   M0.3 AC-G6, product-plan A5. A normal status line in Standard mode;
+   oversized and prominent in Glance mode ("Makes date/time prominent when
+   enabled"). Time and date sit inline and baseline-aligned: the date is a
+   small dimmed uppercase label beside the larger bold time, not a second
+   line of equal visual weight.
+ */
+
+.clock-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.clock-header__time {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.clock-header__date {
+  font-size: 0.45em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.app[data-mode='glance'] .clock-header {
+  font-size: 1.875em;
+}
+
+/* ==========================================================================
+   10. Glance mode
+   ==========================================================================
+   Denser and more color-forward than Standard. Glance carries no per-row
+   actions (see section 7), so the extra density here costs nothing
+   functional.
+ */
+
+.app[data-mode='glance'] .app__header {
+  padding-bottom: 0.375em;
+}
+.app[data-mode='glance'] .task-row {
+  font-weight: 600;
+}
+/*
+ * Glance truncates a long task name to one line rather than wrapping it.
+ * Density is a product requirement for this mode, not polish (M3-R1) — the
+ * long-text fixture previously spent six lines of vertical space on a single
+ * task, crowding out the "what needs attention now" scan the mode exists to
+ * serve. Standard mode still wraps: it is the management surface, where
+ * reading the whole name matters more than fitting more rows on screen.
+ * `TaskRow` sets `title` for pointer users, and assistive tech reads the full
+ * name from the DOM either way, so the truncation costs no information.
+ */
+.app[data-mode='glance'] .task-row__name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+}
+.app[data-mode='glance'] .sheet-section__title {
+  padding-top: 0.5em;
+}
+
+/*
+ * Glance mode reveals the settings surface behind the menu button as a
+ * raised panel rather than dumping it inline into the dashboard flow.
+ */
+.settings-panel {
+  margin: 0 1.375em 1em;
+}
+
+/* ==========================================================================
+   11. Density
+   ==========================================================================
+   Comfortable is the rhythm set above; compact tightens it. Applied via the
+   `data-density` attribute on the same ancestor that carries mode/theme/zoom,
+   so no component needs to know its own density.
+ */
+
+.app[data-density='compact'] .task-row {
+  min-height: 2.25em;
+  padding: 0.1em 0.625em;
+  gap: 0.45em;
+}
+.app[data-density='compact'] .sheet-section__tasks {
+  gap: 0.1875em;
+}
+.app[data-density='compact'] .sheet-section__title {
+  padding: 0.375em 0.5em 0.25em;
+}
+.app[data-density='compact'] .sheet-section {
+  padding: 0.125em 0.625em;
+}
+
+/* ==========================================================================
+   12. Settings surface
+   ========================================================================== */
+
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875em;
+}
+
+/*
+ * Each preference group is a card. The groups are `role="group"` +
+ * `aria-labelledby` rather than `<fieldset>`/`<legend>`: the grouping
+ * semantics are equivalent for assistive tech, but a `<legend>` is laid out
+ * inside its fieldset's top border gap and is only partly stylable across
+ * browsers, which is what made this panel read as a raw HTML form.
+ */
+.settings-card {
+  padding: 1em 1.125em;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-lg);
+  min-width: 0;
+}
+.settings-card__title {
+  margin: 0 0 0.5em;
+  font-size: 0.8em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+/*
+ * Settings cards flow into as many columns as fit, rather than one long ribbon
+ * (narrow) or two very wide cards (desktop). Two fixed columns left each card
+ * ~900px wide at 1920, which stranded every control on the far right of its
+ * own row, a screen-width away from the label it belongs to. Capping the track
+ * keeps a label and its control readable as a pair at every width, and needs
+ * no breakpoint.
+ */
+.settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 26rem), 1fr));
+  align-items: start;
+}
+
+.settings-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.625em;
+  flex-wrap: wrap;
+}
+.settings-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+  font-size: 0.8em;
+  color: var(--text-dim);
+}
+.settings-form input {
+  width: 5.5em;
+}
+
+/* Emoji override editors: a compact wrapping grid of icon-sized fields. */
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5em, 1fr));
+  gap: 0.5em;
+}
+/*
+ * Each label is boxed with its own field. Without the box the two-column grid
+ * reads ambiguously — a field sitting at the right edge of its cell looks like
+ * it belongs to the label starting the next one.
+ */
+.emoji-grid label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5em;
+  padding: 0.3em 0.3em 0.3em 0.6em;
+  background: var(--panel-raised);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-md);
+  font-size: 0.8em;
+  color: var(--text-dim);
+}
+.emoji-grid input {
+  width: 3em;
+  text-align: center;
+  font-size: 1em;
+}
+
+.settings-error {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.8em;
+  color: #ff9d9d;
+}
+.app[data-theme='light'] .settings-error {
+  color: #9a1c1c;
+}
+
+/* ==========================================================================
+   13. Dialogs
+   ==========================================================================
+   `TaskForm`/`MoveTaskDialog` render as `role="dialog"` siblings with no
+   wrapper element. The full-viewport scrim is therefore drawn with an
+   outsized `box-shadow` spread on the dialog itself rather than a separate
+   backdrop node — the dialog is centered, so a spread of 100vmax always
+   reaches every edge.
+ */
+
+.dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 900;
+  width: min(27.5rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75em;
+  padding: 1.375em 1.5em;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--panel-border);
+  border-radius: 1em;
+  box-shadow:
+    0 18px 50px rgba(0, 0, 0, 0.55),
+    0 0 0 100vmax rgba(0, 0, 0, 0.62);
+}
+
+.dialog__title {
+  margin: 0;
+  font-size: 0.95em;
+  font-weight: 700;
+}
+
+.dialog__message {
+  margin: 0;
+  font-size: 0.85em;
+  color: var(--text-dim);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3em;
+  min-width: 0;
+}
+.field > span {
+  font-size: 0.7em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+}
+.field--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5em;
+  min-height: var(--control-h);
+}
+.field--inline > span {
+  font-size: 0.8em;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+}
+
+.field-row {
+  display: flex;
+  gap: 0.625em;
+  flex-wrap: wrap;
+}
+.field-row > .field {
+  flex: 1 1 8em;
+}
+
+.field-error {
+  margin: 0;
+  font-size: 0.75em;
+  color: #ff9d9d;
+}
+.app[data-theme='light'] .field-error {
+  color: #9a1c1c;
+}
+
+.dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5em;
+  flex-wrap: wrap;
+  margin-top: 0.375em;
+}
+
+/* ==========================================================================
+   14. Legend
+   ==========================================================================
+   The mockup's collapsible Status / Due / Priority key (M3.6-D3, resolved
+   2026-07-30). Its due swatches read the same `--band-*` tokens the task rows
+   do — hoisted onto `[data-due-band]` in section 8 for exactly this reason —
+   so the key cannot drift from the rows it explains.
+ */
+
+.legend {
+  margin-top: 0.75em;
+  border-top: 1px solid var(--panel-border);
+}
+
+.legend__toggle {
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.5em 1.375em;
+  font-size: 0.72em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  min-height: var(--control-h);
+  gap: 0.5em;
+}
+.legend__toggle:hover:not(:disabled) {
+  filter: none;
+  color: var(--text-dim);
+}
+
+.legend__chev {
+  font-size: 0.9em;
+  /* Rotated, not animated — this file ships no motion CSS (see the file head). */
+  transform: rotate(-90deg);
+}
+.legend__toggle[aria-expanded='true'] .legend__chev {
+  transform: rotate(0deg);
+}
+
+.legend__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  padding: 0 1.375em 1em;
+}
+
+.legend__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375em;
+}
+
+.legend__label {
+  flex: 0 0 auto;
+  width: 4.5em;
+  font-size: 0.68em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+
+/* Same fill/text pair as a task row of that band, in pill form. */
+.legend__band {
+  font-size: 0.72em;
+  font-weight: 600;
+  padding: 0.3em 0.7em;
+  border-radius: var(--radius-pill);
+  background: var(--band-bg);
+  color: var(--band-fg);
+  border: 1px solid var(--band-line, transparent);
+  white-space: nowrap;
+}
+.app[data-theme='darker'] .legend__band {
+  background: color-mix(in srgb, var(--band-bg) 22%, transparent);
+  color: var(--band-tint-fg, var(--band-fg));
+  border-color: var(--band-line);
+}
+.app[data-theme='high-contrast'] .legend__band {
+  background: #000000;
+  color: #ffffff;
+  border: 2px solid var(--band-hc-line, #ffffff);
 }
