@@ -25,7 +25,17 @@ export const userRoutes = new Hono<AppEnv>();
  * fast bulk-enumeration oracle. See `rate-limit.ts` for the fixed-window
  * KV-counter design and its documented best-effort limits.
  */
-const USER_LOOKUP_RATE_LIMIT = { limit: 20, windowSeconds: 60 };
+// `onWriteFailure: 'deny'` (Codex M4-RR-03). A burst is exactly the traffic
+// shape that trips KV's one-write-per-second limit on a single key, so a
+// fail-open counter stopped bounding the very pattern this limit was added to
+// stop: read the last durable count, fail every write, keep going. Treating an
+// unrecordable attempt as refused costs a legitimate user at most a retry on a
+// lookup box, and costs an enumerator the bulk oracle.
+const USER_LOOKUP_RATE_LIMIT = {
+  limit: 20,
+  windowSeconds: 60,
+  onWriteFailure: 'deny',
+} as const;
 
 // POST rather than GET/query-string, so an exact email is never carried in a
 // URL where it could land in server access logs or browser history.

@@ -25,6 +25,12 @@ export interface UserDetail {
   user: UserRecord;
   ownedSheets: SheetRecord[];
   memberships: SheetMembershipRecord[];
+  /**
+   * The List behind each membership, keyed by sheet id (Codex M4-RR-04), so
+   * the admin detail view can name what the account has access to instead of
+   * rendering a bare UUID. List metadata only — no task content is loaded.
+   */
+  membershipSheets: Map<string, SheetRecord>;
 }
 
 export class AccountService {
@@ -86,7 +92,24 @@ export class AccountService {
       this.deps.repos.memberships.listForUser(targetUserId),
     ]);
 
-    return { user, ownedSheets: [...activeOwned, ...recycledOwned], memberships };
+    // A per-row lookup rather than a new batched repository method, matching
+    // the same trade-off `GET /sheets/:sheetId/members` already makes: an
+    // account's membership count is small in V2, and this avoids adding a
+    // repository method whose only caller is this one view.
+    const membershipSheets = new Map<string, SheetRecord>();
+    await Promise.all(
+      memberships.map(async (membership) => {
+        const sheet = await this.deps.repos.sheets.findById(membership.sheetId);
+        if (sheet !== null) membershipSheets.set(membership.sheetId, sheet);
+      })
+    );
+
+    return {
+      user,
+      ownedSheets: [...activeOwned, ...recycledOwned],
+      memberships,
+      membershipSheets,
+    };
   }
 
   /**
@@ -102,6 +125,22 @@ export class AccountService {
     const target = await this.load(targetUserId);
 
     if (target.globalRole === globalRole) return;
+
+    // An admin may not remove their own admin role (M4-AR-05). This is the
+    // same availability rule `refuseSelfTargeting` applies to disable/recycle,
+    // and it was missing here even though the outcome is identical: the batch
+    // below bumps `auth_version`, so a self-demotion revokes the actor's own
+    // sessions and leaves them with no authority to undo it. With the small
+    // trusted admin set this product assumes, that can leave the installation
+    // with no usable administrator and no in-app recovery. Promoting another
+    // account, or being demoted *by* another admin, is unaffected.
+    if (actor.userId === targetUserId && globalRole !== 'admin') {
+      throw new AppError(
+        409,
+        'SELF_TARGET_REFUSED',
+        'You cannot remove your own administrator role. Ask another administrator to do it.'
+      );
+    }
 
     const now = this.deps.clock();
     await this.deps.db.batch([
@@ -233,8 +272,16 @@ export class AccountService {
     ]);
     const ownedSheetIds = [...activeOwned, ...recycledOwned].map((s) => s.id);
 
+    // Each List delete is bound to the ownership this purge actually
+    // authorized (M4-AR-03): a List transferred away between the read above
+    // and this batch belongs to someone else now and must survive. The
+    // converse race — a List transferred *in* after the read — is caught by
+    // `sheets.owner_user_id`'s ON DELETE RESTRICT, which fails the whole batch
+    // atomically rather than half-purging the account.
     await this.deps.db.batch([
-      ...ownedSheetIds.map((sheetId) => this.deps.repos.sheets.prepareDeletePermanently(sheetId)),
+      ...ownedSheetIds.map((sheetId) =>
+        this.deps.repos.sheets.prepareDeletePermanentlyIfOwner(sheetId, targetUserId)
+      ),
       this.deps.repos.users.prepareDeletePermanently(targetUserId),
       buildAuditStatement(this.deps, {
         actorUserId: actor.userId,

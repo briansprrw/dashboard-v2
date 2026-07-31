@@ -206,7 +206,7 @@ describe('sanitizeRedirectPath', () => {
 describe('OAuth-start rate limiting', () => {
   it('allows requests within the limit', async () => {
     const key = crypto.randomUUID();
-    const policy = { limit: 3, windowSeconds: 60 };
+    const policy = { limit: 3, windowSeconds: 60, onWriteFailure: 'allow' } as const;
 
     expect((await checkRateLimit(kv(), key, policy)).allowed).toBe(true);
     expect((await checkRateLimit(kv(), key, policy)).allowed).toBe(true);
@@ -215,7 +215,7 @@ describe('OAuth-start rate limiting', () => {
 
   it('denies a request once the limit is exceeded', async () => {
     const key = crypto.randomUUID();
-    const policy = { limit: 2, windowSeconds: 60 };
+    const policy = { limit: 2, windowSeconds: 60, onWriteFailure: 'allow' } as const;
 
     expect((await checkRateLimit(kv(), key, policy)).allowed).toBe(true);
     expect((await checkRateLimit(kv(), key, policy)).allowed).toBe(true);
@@ -224,7 +224,7 @@ describe('OAuth-start rate limiting', () => {
   });
 
   it('tracks each key independently', async () => {
-    const policy = { limit: 1, windowSeconds: 60 };
+    const policy = { limit: 1, windowSeconds: 60, onWriteFailure: 'allow' } as const;
     const keyA = crypto.randomUUID();
     const keyB = crypto.randomUUID();
 
@@ -234,24 +234,59 @@ describe('OAuth-start rate limiting', () => {
     expect((await checkRateLimit(kv(), keyB, policy)).allowed).toBe(true);
   });
 
-  it('fails open when the KV write conflicts (Codex M2-RR-01 follow-up on M2-QA-04)', async () => {
-    // Every allowed request writes the *same* per-key value; Cloudflare
-    // documents a one-write-per-second limit on a single key, so two ordinary
-    // legitimate requests from one IP within the same second could otherwise
-    // make the second write fail. That failure must be absorbed as "allow",
-    // not surfaced as an error the caller experiences as a broken sign-in.
-    const rejecting: KVNamespace = {
+  /** A KV binding whose writes always fail, as they do past one write/second on a key. */
+  function writeRejectingKv(): KVNamespace {
+    return {
       ...kv(),
       get: kv().get.bind(kv()),
       put: async () => {
         throw new Error('simulated KV one-write-per-second conflict');
       },
     } as unknown as KVNamespace;
+  }
 
+  it('fails open when the KV write conflicts (Codex M2-RR-01 follow-up on M2-QA-04)', async () => {
+    // Every allowed request writes the *same* per-key value; Cloudflare
+    // documents a one-write-per-second limit on a single key, so two ordinary
+    // legitimate requests from one IP within the same second could otherwise
+    // make the second write fail. For `/auth/start` that failure must be
+    // absorbed as "allow", not surfaced as an error the caller experiences as
+    // a broken sign-in.
     const key = crypto.randomUUID();
-    const policy = { limit: 5, windowSeconds: 60 };
+    const policy = { limit: 5, windowSeconds: 60, onWriteFailure: 'allow' } as const;
 
-    await expect(checkRateLimit(rejecting, key, policy)).resolves.toMatchObject({ allowed: true });
+    await expect(checkRateLimit(writeRejectingKv(), key, policy)).resolves.toMatchObject({
+      allowed: true,
+    });
+  });
+
+  it('fails closed for a deny policy, so a burst cannot outrun the counter (Codex M4-RR-03)', async () => {
+    // The hole this closes: a burst is exactly the traffic shape that trips
+    // KV's one-write-per-second limit, so a fail-open counter stopped bounding
+    // the very pattern the limit exists to stop. Every request read the last
+    // durable count, every write failed, and the caller continued unbounded.
+    const key = crypto.randomUUID();
+    const policy = { limit: 5, windowSeconds: 60, onWriteFailure: 'deny' } as const;
+    const rejecting = writeRejectingKv();
+
+    // Repeated attempts stay denied rather than sailing through indefinitely.
+    for (let i = 0; i < 10; i++) {
+      await expect(checkRateLimit(rejecting, key, policy)).resolves.toMatchObject({
+        allowed: false,
+      });
+    }
+  });
+
+  it('a deny policy still allows ordinary traffic when writes succeed', async () => {
+    // Positive control: fail-closed must apply only to the write-failure path,
+    // not become a blanket denial.
+    const key = crypto.randomUUID();
+    const policy = { limit: 3, windowSeconds: 60, onWriteFailure: 'deny' } as const;
+
+    expect((await checkRateLimit(kv(), key, policy)).allowed).toBe(true);
+    expect((await checkRateLimit(kv(), key, policy)).allowed).toBe(true);
+    expect((await checkRateLimit(kv(), key, policy)).allowed).toBe(true);
+    expect((await checkRateLimit(kv(), key, policy)).allowed).toBe(false);
   });
 });
 
@@ -266,7 +301,13 @@ describe('user-lookup rate limiting (M4-QA-09)', () => {
   // same level `OAuth-start rate limiting` above tests its own route at —
   // rather than driving a full authenticated HTTP request, which no test in
   // this suite currently constructs for any route.
-  const USER_LOOKUP_RATE_LIMIT = { limit: 20, windowSeconds: 60 };
+  // Mirrors `src/server/routes/users.ts` exactly, including the fail-closed
+  // write policy Codex M4-RR-03 required.
+  const USER_LOOKUP_RATE_LIMIT = {
+    limit: 20,
+    windowSeconds: 60,
+    onWriteFailure: 'deny',
+  } as const;
 
   it('allows lookups within the per-actor limit', async () => {
     const actorId = crypto.randomUUID();

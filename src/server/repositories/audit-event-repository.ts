@@ -88,6 +88,133 @@ export class AuditEventRepository {
   }
 
   /**
+   * Same statement as `prepareAppend`, but it only writes while the List
+   * `sheetId` is still owned by `expectedOwnerUserId` (M4-AR-01).
+   *
+   * `prepareAppend` alone is not safe inside an owner-guarded batch. The guard
+   * on a membership or ownership statement makes that *one* statement affect
+   * zero rows when a concurrent transfer has already moved ownership — but
+   * zero matched rows is not a SQL error, so the batch commits successfully
+   * and only the application code afterwards turns it into `409
+   * OWNERSHIP_CHANGED`. An unguarded audit row in that same batch is therefore
+   * already durable by the time the request reports failure, leaving the
+   * administrative stream asserting a grant, role change, revocation, or
+   * ownership transfer that never happened.
+   *
+   * Expressed as `INSERT ... SELECT ... WHERE EXISTS` for the same reason
+   * `MembershipRepository.prepareUpsertIfOwner` is: the predicate has to gate
+   * the whole statement, not a column of the row being written.
+   */
+  prepareAppendIfSheetOwner(
+    input: AppendAuditEventInput,
+    sheetId: string,
+    expectedOwnerUserId: string
+  ): D1PreparedStatement {
+    return this.db
+      .prepare(
+        `INSERT INTO audit_events (id, actor_user_id, action, target_type, target_id,
+                                   metadata_json, request_id, created_at)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
+         WHERE EXISTS (SELECT 1 FROM sheets WHERE id = ?9 AND owner_user_id = ?10)`
+      )
+      .bind(
+        input.id,
+        input.actorUserId,
+        input.action,
+        input.targetType,
+        input.targetId,
+        input.metadataJson,
+        input.requestId,
+        input.now,
+        sheetId,
+        expectedOwnerUserId
+      );
+  }
+
+  /**
+   * As `prepareAppendIfSheetOwner`, plus a requirement that `activeUserId` is
+   * still an active account (Codex M4-RR2-01).
+   *
+   * Ownership transfer authorizes two independent facts — the actor still owns
+   * the List, and the *target* is still eligible to own one — and both were
+   * read before the batch. Only the first was carried into the write, so a
+   * target disabled or recycled in between could still be installed as owner
+   * with a clean audit row asserting a legitimate transfer.
+   */
+  prepareAppendIfSheetOwnerAndActiveUser(
+    input: AppendAuditEventInput,
+    sheetId: string,
+    expectedOwnerUserId: string,
+    activeUserId: string
+  ): D1PreparedStatement {
+    return this.db
+      .prepare(
+        `INSERT INTO audit_events (id, actor_user_id, action, target_type, target_id,
+                                   metadata_json, request_id, created_at)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
+         WHERE EXISTS (SELECT 1 FROM sheets WHERE id = ?9 AND owner_user_id = ?10)
+           AND EXISTS (SELECT 1 FROM users WHERE id = ?11 AND state = 'active')`
+      )
+      .bind(
+        input.id,
+        input.actorUserId,
+        input.action,
+        input.targetType,
+        input.targetId,
+        input.metadataJson,
+        input.requestId,
+        input.now,
+        sheetId,
+        expectedOwnerUserId,
+        activeUserId
+      );
+  }
+
+  /**
+   * As `prepareAppendIfSheetOwner`, plus a requirement that `memberUserId`
+   * still holds a membership on the List (Codex M4-RR2-03).
+   *
+   * A revocation's audit row must be bound to a removal that actually happens.
+   * Guarded only by ownership, two concurrent revokes of the same membership
+   * both wrote `sheet.membership.revoked` — one of them from a request whose
+   * `DELETE` matched nothing and which then reported failure.
+   *
+   * Callers must place this **before** the `DELETE` in the batch: statements
+   * run sequentially inside the transaction, so an audit row placed after the
+   * removal would test its own precondition against the row the `DELETE` had
+   * just erased and never fire.
+   */
+  prepareAppendIfSheetOwnerAndMembership(
+    input: AppendAuditEventInput,
+    sheetId: string,
+    expectedOwnerUserId: string,
+    memberUserId: string
+  ): D1PreparedStatement {
+    return this.db
+      .prepare(
+        `INSERT INTO audit_events (id, actor_user_id, action, target_type, target_id,
+                                   metadata_json, request_id, created_at)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
+         WHERE EXISTS (SELECT 1 FROM sheets WHERE id = ?9 AND owner_user_id = ?10)
+           AND EXISTS (SELECT 1 FROM sheet_memberships
+                       WHERE sheet_id = ?9 AND user_id = ?11)`
+      )
+      .bind(
+        input.id,
+        input.actorUserId,
+        input.action,
+        input.targetType,
+        input.targetId,
+        input.metadataJson,
+        input.requestId,
+        input.now,
+        sheetId,
+        expectedOwnerUserId,
+        memberUserId
+      );
+  }
+
+  /**
    * Most recent audit events, newest first. Bounded by an explicit limit
    * because this collection grows without end.
    *

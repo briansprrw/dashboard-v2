@@ -360,6 +360,45 @@ export function toSheetRecoveryDto(sheet: SheetRecoveryRecord): SheetRecoveryDto
  * the same allowlist boundary every other administrative DTO in this file
  * enforces.
  */
+/**
+ * One membership in the admin user-detail view, named (Codex M4-RR-04).
+ *
+ * A distinct type from `MembershipDto`: that one answers "who is on this
+ * List", so it resolves a *person's* name and needs no List name, because the
+ * caller is already looking at the List. This one answers the mirror question
+ * — "which Lists does this account belong to" — where the person is already
+ * known and the List is the unidentified side. Rendering a bare `sheetId` UUID
+ * that appears nowhere else in the UI does not tell an operator what the
+ * account actually has access to.
+ *
+ * `displayName`/`state` are List metadata, which M4's approved admin
+ * user-detail scope already includes ("owned Lists, and memberships"). Owned
+ * Lists are already named here via `SheetDto`; this closes the inconsistency
+ * that memberships were not. It carries no task content, and remains a
+ * different projection from the recovery surface, which deliberately withholds
+ * List names because it operates on opaque identity alone.
+ */
+export interface AdminMembershipDto {
+  sheetId: string;
+  displayName: string | null;
+  sheetState: SheetState | null;
+  role: MembershipRole;
+  createdAt: number;
+}
+
+export function toAdminMembershipDto(
+  membership: SheetMembershipRecord,
+  sheet: SheetRecord | null
+): AdminMembershipDto {
+  return {
+    sheetId: membership.sheetId,
+    displayName: sheet?.displayName ?? null,
+    sheetState: sheet?.state ?? null,
+    role: membership.role,
+    createdAt: membership.createdAt,
+  };
+}
+
 export interface AdminUserDetailDto {
   id: string;
   displayName: string;
@@ -368,13 +407,15 @@ export interface AdminUserDetailDto {
   lastSeenAt: number | null;
   createdAt: number;
   ownedSheets: SheetDto[];
-  memberships: MembershipDto[];
+  memberships: AdminMembershipDto[];
 }
 
 export function toAdminUserDetailDto(input: {
   user: UserRecord;
   ownedSheets: SheetRecord[];
   memberships: SheetMembershipRecord[];
+  /** The List behind each membership, by id. Absent entries render as null. */
+  membershipSheets?: ReadonlyMap<string, SheetRecord>;
 }): AdminUserDetailDto {
   return {
     id: input.user.id,
@@ -384,7 +425,9 @@ export function toAdminUserDetailDto(input: {
     lastSeenAt: input.user.lastSeenAt,
     createdAt: input.user.createdAt,
     ownedSheets: input.ownedSheets.map(toSheetDto),
-    memberships: input.memberships.map((membership) => toMembershipDto(membership)),
+    memberships: input.memberships.map((membership) =>
+      toAdminMembershipDto(membership, input.membershipSheets?.get(membership.sheetId) ?? null)
+    ),
   };
 }
 

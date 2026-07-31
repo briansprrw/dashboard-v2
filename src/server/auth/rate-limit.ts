@@ -39,6 +39,31 @@ export interface RateLimitPolicy {
   limit: number;
   /** Window length in seconds. */
   windowSeconds: number;
+  /**
+   * What to do when the counter write itself fails (Codex M4-RR-03).
+   *
+   * KV permits roughly one write per second to a single key and rejects the
+   * rest. Because every allowed request rewrites the same key, a *burst* is
+   * exactly the traffic shape that trips that limit — so `'allow'` makes the
+   * limiter fail open precisely when it is most needed: the attacker reads the
+   * last durable count, their writes all fail, and they continue well past the
+   * nominal bound.
+   *
+   * `'deny'` closes that hole by treating an unrecordable attempt as a refused
+   * one. The cost is that a legitimate caller who genuinely issues two
+   * requests inside the same second may see one `429`.
+   *
+   * Which cost is acceptable depends on the route, so this is explicit per
+   * policy rather than a global default:
+   *
+   *   - `'allow'` for `/auth/start`, where M2-QA-04's original reasoning still
+   *     holds — a spurious rejection there breaks sign-in itself, and the
+   *     endpoint's real protection is that it is bounded per IP and cheap.
+   *   - `'deny'` for `/users/lookup`, where a spurious rejection costs a
+   *     retry on a lookup box and the control exists specifically to stop
+   *     fast bulk enumeration of account existence.
+   */
+  onWriteFailure: 'allow' | 'deny';
 }
 
 export interface RateLimitResult {
@@ -72,11 +97,15 @@ export async function checkRateLimit(
   try {
     await kv.put(kvKey, String(count), { expirationTtl: policy.windowSeconds });
   } catch {
-    // See the file header: a same-key write conflict (KV's one-write-per-
-    // second limit, hit by two legitimate requests in the same second) must
-    // not fail the request it was meant to allow. The count is not durably
-    // recorded this time, which only makes the limiter slightly more
-    // permissive under contention — never less.
+    // The attempt could not be durably recorded (KV's one-write-per-second
+    // limit on a single key). `policy.onWriteFailure` decides what that means
+    // — see the field's own documentation for why it is a per-route choice
+    // rather than one global answer. For a `'deny'` policy this is the branch
+    // that actually closes the burst hole Codex M4-RR-03 identified: without
+    // it, the failure mode and the attack have the same shape.
+    if (policy.onWriteFailure === 'deny') {
+      return { allowed: false, count: current };
+    }
   }
   return { allowed: true, count };
 }

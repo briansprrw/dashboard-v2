@@ -77,6 +77,70 @@ export function buildAuditStatement(
   return deps.repos.auditEvents.prepareAppend(buildAuditRecord(deps, input));
 }
 
+/**
+ * Same as `buildAuditStatement`, for a batch whose mutation is itself guarded
+ * by the List's current owner (M4-AR-01).
+ *
+ * An owner-guarded batch has two possible outcomes, and only one of them is a
+ * real action. When the guard no longer matches, every guarded statement
+ * affects zero rows, the batch still commits, and the caller raises `409
+ * OWNERSHIP_CHANGED`. The audit row must share that fate: batching an
+ * unguarded `buildAuditStatement` alongside a guarded mutation records
+ * evidence of an action the same batch declined to perform.
+ */
+export function buildAuditStatementIfSheetOwner(
+  deps: ServiceDeps,
+  input: WriteAuditInput,
+  sheetId: string,
+  expectedOwnerUserId: string
+): D1PreparedStatement {
+  return deps.repos.auditEvents.prepareAppendIfSheetOwner(
+    buildAuditRecord(deps, input),
+    sheetId,
+    expectedOwnerUserId
+  );
+}
+
+/**
+ * As `buildAuditStatementIfSheetOwner`, plus the target account still being
+ * active (Codex M4-RR2-01). Used by ownership transfer, whose authorization
+ * rests on two facts read before the batch, not one.
+ */
+export function buildAuditStatementIfSheetOwnerAndActiveUser(
+  deps: ServiceDeps,
+  input: WriteAuditInput,
+  sheetId: string,
+  expectedOwnerUserId: string,
+  activeUserId: string
+): D1PreparedStatement {
+  return deps.repos.auditEvents.prepareAppendIfSheetOwnerAndActiveUser(
+    buildAuditRecord(deps, input),
+    sheetId,
+    expectedOwnerUserId,
+    activeUserId
+  );
+}
+
+/**
+ * As `buildAuditStatementIfSheetOwner`, plus the membership still existing
+ * (Codex M4-RR2-03), so a revocation is only recorded when one really occurs.
+ * Must be batched ahead of the `DELETE` it documents.
+ */
+export function buildAuditStatementIfSheetOwnerAndMembership(
+  deps: ServiceDeps,
+  input: WriteAuditInput,
+  sheetId: string,
+  expectedOwnerUserId: string,
+  memberUserId: string
+): D1PreparedStatement {
+  return deps.repos.auditEvents.prepareAppendIfSheetOwnerAndMembership(
+    buildAuditRecord(deps, input),
+    sheetId,
+    expectedOwnerUserId,
+    memberUserId
+  );
+}
+
 function buildAuditRecord(deps: ServiceDeps, input: WriteAuditInput): AppendAuditEventInput {
   const metadataJson = JSON.stringify(input.metadata ?? {});
   if (metadataJson.length > LIMITS.auditMetadataJson.max) {

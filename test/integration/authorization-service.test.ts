@@ -1303,7 +1303,32 @@ describe('admin user-detail (M0 §12)', () => {
     // history content) — this assertion instead proves the detail view
     // carries no task content at all, by construction: `UserDetail` has no
     // field capable of holding a task name or note in the first place.
-    expect(Object.keys(detail)).toEqual(['user', 'ownedSheets', 'memberships']);
+    //
+    // `membershipSheets` (Codex M4-RR-04) holds `SheetRecord`s so the admin UI
+    // can name the Lists an account belongs to. Same class of data as
+    // `ownedSheets`, which was already here: List metadata, never task
+    // content. The task-content assertion below is what actually enforces
+    // that, rather than the key list alone.
+    expect(Object.keys(detail)).toEqual(['user', 'ownedSheets', 'memberships', 'membershipSheets']);
+  });
+
+  it('carries no task content even when the account List holds a task', async () => {
+    const s = await scenario();
+    const taskMarker = 'SYNTHETIC-TASK-NAME-d41f7a';
+    const noteMarker = 'SYNTHETIC-NOTE-d41f7a';
+    await makeTask(s.sheet.id, { name: taskMarker, notes: noteMarker });
+
+    const detail = await buildServices().accounts.getUserDetail(s.actors.admin, s.owner.id);
+
+    // Serialising the whole structure is the strongest available check: it
+    // catches a task field arriving through any nested record, not only
+    // through a field this test knew to look at.
+    const serialized = JSON.stringify({
+      ...detail,
+      membershipSheets: [...detail.membershipSheets.entries()],
+    });
+    expect(serialized).not.toContain(taskMarker);
+    expect(serialized).not.toContain(noteMarker);
   });
 
   it('includes memberships the user holds on Lists they do not own', async () => {

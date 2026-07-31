@@ -36,7 +36,16 @@ const SIGN_IN_ERROR_PATH = '/signed-out?error=1';
  * to sign-in, a few tabs) is affected; see `rate-limit.ts` for why this is a
  * best-effort KV counter rather than a precise quota.
  */
-const SIGN_IN_START_RATE_LIMIT = { limit: 20, windowSeconds: 60 };
+// `onWriteFailure: 'allow'` keeps M2-QA-04's original behaviour deliberately
+// (Codex M4-RR-03 narrowed the fail-closed change to the lookup route): a
+// spurious rejection here breaks sign-in itself, which is a worse outcome than
+// a briefly permissive bound on an endpoint that is already cheap and
+// IP-scoped.
+const SIGN_IN_START_RATE_LIMIT = {
+  limit: 20,
+  windowSeconds: 60,
+  onWriteFailure: 'allow',
+} as const;
 
 /**
  * Begins sign-in. Responds with a redirect to the provider.

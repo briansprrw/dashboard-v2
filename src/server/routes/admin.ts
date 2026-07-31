@@ -23,6 +23,7 @@ import { parseLookupUserByEmail } from '../../shared/contracts/requests';
 import { requireId } from '../../shared/contracts/validation';
 import { GLOBAL_ROLES } from '../../shared/domain/enums';
 import type { AuditEventRecord } from '../../shared/domain/records';
+import { resolveAuditLimit } from '../services/admin-audit-service';
 import { AUDIT_TARGET_TYPES } from '../services/audit';
 import { buildServices } from '../app-context';
 import type { AppEnv } from '../env';
@@ -184,25 +185,28 @@ function parseBeforeCursor(c: Context<AppEnv>) {
 
 /**
  * `nextCursor` is the `(createdAt, id)` of the last returned row, or `null`
- * once fewer than `limit` rows came back — the page was not full, so there
- * is nothing more to fetch. A client pages by resending the same request
+ * once fewer than `effectiveLimit` rows came back — the page was not full, so
+ * there is nothing more to fetch. A client pages by resending the same request
  * with `beforeCreatedAt`/`beforeId` set to the previous response's
  * `nextCursor` (M4-QA-08).
+ *
+ * `effectiveLimit` must be the page size the *query* used, not the caller's
+ * raw request (M4-RR-02). The service clamps an above-cap limit to 200, so
+ * comparing against an unclamped 201 made a full page look partial and ended
+ * pagination early while older events still existed.
  */
-function buildAuditPage(events: AuditEventRecord[], limit: number) {
+export function buildAuditPage(events: AuditEventRecord[], effectiveLimit: number) {
   const nextCursor =
-    events.length >= limit && events.length > 0
+    events.length >= effectiveLimit && events.length > 0
       ? { createdAt: events[events.length - 1]!.createdAt, id: events[events.length - 1]!.id }
       : null;
   return { events: events.map(toAuditEventDto), nextCursor };
 }
 
-const DEFAULT_AUDIT_LIMIT = 50;
-
 /** The separate administrative/security audit stream (M0 §5), newest first. */
 adminRoutes.get('/audit', async (c) => {
   const services = buildServices(c.env, c.get('requestId'));
-  const limit = parseLimitQuery(c.req.query('limit')) ?? DEFAULT_AUDIT_LIMIT;
+  const limit = resolveAuditLimit(parseLimitQuery(c.req.query('limit')));
   const events = await services.adminAudit.listRecent(c.get('actor'), limit, parseBeforeCursor(c));
   return c.json(buildAuditPage(events, limit));
 });
@@ -220,7 +224,7 @@ adminRoutes.get('/audit/:targetType/:targetId', async (c) => {
   const targetId = requireId(c.req.param('targetId'), 'targetId');
 
   const services = buildServices(c.env, c.get('requestId'));
-  const limit = parseLimitQuery(c.req.query('limit')) ?? DEFAULT_AUDIT_LIMIT;
+  const limit = resolveAuditLimit(parseLimitQuery(c.req.query('limit')));
   const events = await services.adminAudit.listForTarget(
     c.get('actor'),
     targetType!,

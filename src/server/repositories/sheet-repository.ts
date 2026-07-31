@@ -247,13 +247,23 @@ export class SheetRepository {
   }
 
   /**
-   * Same two statements as `prepareTransferOwnership`, but the owner-changing
-   * `UPDATE` only takes effect while `owner_user_id` still matches
-   * `expectedOwnerUserId` (M4-QA-02). The caller (`SheetService.
-   * transferOwnership`) checks the corresponding batch result's
-   * `meta.changes` and reports a conflict rather than committing a transfer
-   * decided under authority that had already been superseded by a
-   * concurrent transfer.
+   * Same two statements as `prepareTransferOwnership`, but **both** only take
+   * effect while `owner_user_id` still matches `expectedOwnerUserId`
+   * (M4-QA-02, corrected by M4-AR-02). The caller (`SheetService.
+   * transferOwnership`) checks the owner `UPDATE`'s `meta.changes` and reports
+   * a conflict rather than committing a transfer decided under authority that
+   * had already been superseded by a concurrent transfer.
+   *
+   * The membership `DELETE` carries the same guard as the `UPDATE`, and that
+   * is load-bearing rather than symmetry for its own sake. The first version
+   * of this method guarded only the `UPDATE`, on the reasoning that the
+   * `DELETE` is scoped to `newOwnerUserId` and so has nothing to lose a race
+   * over. That reasoning holds on the success path and fails on the losing
+   * one: a batch whose guard no longer matches still *commits* (zero matched
+   * rows is not an error), so an unguarded `DELETE` stripped the proposed new
+   * owner's existing viewer/editor membership even though the transfer was
+   * refused with `409`. A member lost their access to a request that reported
+   * failure, with no audit row describing a revocation.
    */
   prepareTransferOwnershipIfOwner(
     id: string,
@@ -263,14 +273,64 @@ export class SheetRepository {
   ): D1PreparedStatement[] {
     return [
       this.db
-        .prepare('DELETE FROM sheet_memberships WHERE sheet_id = ?1 AND user_id = ?2')
-        .bind(id, newOwnerUserId),
+        .prepare(
+          `DELETE FROM sheet_memberships WHERE sheet_id = ?1 AND user_id = ?2
+           AND EXISTS (SELECT 1 FROM sheets WHERE id = ?1 AND owner_user_id = ?3)
+           AND EXISTS (SELECT 1 FROM users WHERE id = ?2 AND state = 'active')`
+        )
+        .bind(id, newOwnerUserId, expectedOwnerUserId),
       this.db
         .prepare(
-          'UPDATE sheets SET owner_user_id = ?2, updated_at = ?3 WHERE id = ?1 AND owner_user_id = ?4'
+          `UPDATE sheets SET owner_user_id = ?2, updated_at = ?3
+           WHERE id = ?1 AND owner_user_id = ?4
+             AND EXISTS (SELECT 1 FROM users WHERE id = ?2 AND state = 'active')`
         )
         .bind(id, newOwnerUserId, now, expectedOwnerUserId),
     ];
+  }
+
+  /**
+   * Renames the List only while it is still owned by `expectedOwnerUserId`
+   * (Codex M4-RR2-02).
+   *
+   * `rename` authorizes from a read and then writes unconditionally, so a
+   * former owner suspended in `authorize()` across a concurrent transfer could
+   * resume and rename the *new* owner's List. Same stale-authority class
+   * M4-QA-02 required database-time protection for on the membership and
+   * transfer writes; the adjacent owner-only lifecycle writes were missed.
+   */
+  prepareRenameIfOwner(
+    id: string,
+    displayName: string,
+    now: number,
+    expectedOwnerUserId: string
+  ): D1PreparedStatement {
+    return this.db
+      .prepare(
+        `UPDATE sheets SET display_name = ?2, updated_at = ?3
+         WHERE id = ?1 AND owner_user_id = ?4`
+      )
+      .bind(id, displayName, now, expectedOwnerUserId);
+  }
+
+  /** Same statement as `prepareRecycle`, owner-guarded (Codex M4-RR2-02). */
+  prepareRecycleIfOwner(id: string, now: number, expectedOwnerUserId: string): D1PreparedStatement {
+    return this.db
+      .prepare(
+        `UPDATE sheets SET state = 'recycled', recycled_at = ?2, updated_at = ?2
+         WHERE id = ?1 AND owner_user_id = ?3`
+      )
+      .bind(id, now, expectedOwnerUserId);
+  }
+
+  /** Same statement as `prepareRestore`, owner-guarded (Codex M4-RR2-02). */
+  prepareRestoreIfOwner(id: string, now: number, expectedOwnerUserId: string): D1PreparedStatement {
+    return this.db
+      .prepare(
+        `UPDATE sheets SET state = 'active', recycled_at = NULL, updated_at = ?2
+         WHERE id = ?1 AND owner_user_id = ?3`
+      )
+      .bind(id, now, expectedOwnerUserId);
   }
 
   /**
@@ -285,5 +345,25 @@ export class SheetRepository {
   /** Same statement as `deletePermanently`, unexecuted, for batching with its audit row. */
   prepareDeletePermanently(id: string): D1PreparedStatement {
     return this.db.prepare('DELETE FROM sheets WHERE id = ?1').bind(id);
+  }
+
+  /**
+   * Same as `prepareDeletePermanently`, but only while the List is still owned
+   * by `expectedOwnerUserId` (M4-AR-03).
+   *
+   * `AccountService.purge` reads the target account's owned Lists and then
+   * deletes them by id. Between those two steps an ownership transfer can move
+   * one of those Lists to somebody else — an Admin may transfer a recycled
+   * account's List, which is exactly the stranding-recovery case the transfer
+   * path exists for. Deleting by bare id then permanently destroys a List, its
+   * tasks, and its history belonging to a third party who was never the
+   * subject of the purge, with no recycle-bin window to recover from. Binding
+   * the delete to the ownership the purge actually authorized makes the
+   * transferred List survive instead.
+   */
+  prepareDeletePermanentlyIfOwner(id: string, expectedOwnerUserId: string): D1PreparedStatement {
+    return this.db
+      .prepare('DELETE FROM sheets WHERE id = ?1 AND owner_user_id = ?2')
+      .bind(id, expectedOwnerUserId);
   }
 }

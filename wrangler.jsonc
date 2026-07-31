@@ -11,7 +11,7 @@
   // latter and silently breaks the former. Bump manually until a real
   // release/versioning process exists.
   "vars": {
-    "APP_VERSION": "0.2.0-m2",
+    "APP_VERSION": "0.4.0-m4",
   },
   "assets": {
     "directory": "./dist/client",
@@ -49,18 +49,27 @@
   "env": {
     "preview": {
       "vars": {
-        "APP_VERSION": "0.2.0-m2",
+        "APP_VERSION": "0.4.0-m4",
         // Authentication configuration (M2.3). Non-secret values only —
         // GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are Wrangler secrets set
         // with `wrangler secret put --env preview` and never appear here.
         //
         // OAUTH_REDIRECT_URI must match the Authorized redirect URI registered
         // on the Google OAuth client byte for byte, including scheme and the
-        // absence of a trailing slash — Google compares it exactly.
-        "OAUTH_REDIRECT_URI": "https://dash2-preview.b-f75.workers.dev/api/v1/auth/callback",
-        // Origins permitted to make state-changing requests. Preview is a
-        // single-origin application, so this is just its own hostname.
-        "ALLOWED_ORIGINS": "https://dash2-preview.b-f75.workers.dev",
+        // absence of a trailing slash — Google compares it exactly. Brian
+        // registered the `dash2-preview.dnky.us` callback on 2026-07-31.
+        //
+        // Single-valued by protocol: sign-in initiated from either hostname
+        // completes on this one, so the session cookie is always set on the
+        // custom domain. That is the intended landing place now that the
+        // friendly hostname exists.
+        "OAUTH_REDIRECT_URI": "https://dash2-preview.dnky.us/api/v1/auth/callback",
+        // Origins permitted to make state-changing requests. Both are listed
+        // deliberately during the hostname switch: the `workers.dev` URL keeps
+        // working so a mistake in the custom-domain setup cannot lock the only
+        // administrator out of the only environment. Drop the `workers.dev`
+        // entry once the custom domain is confirmed good.
+        "ALLOWED_ORIGINS": "https://dash2-preview.dnky.us,https://dash2-preview.b-f75.workers.dev",
         // COOKIE_SECURE is deliberately unset: anything other than the literal
         // "false" yields Secure cookies, so preview (HTTPS) gets them without
         // needing to say so. Only plain-HTTP local development sets "false".

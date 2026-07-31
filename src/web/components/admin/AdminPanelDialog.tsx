@@ -236,9 +236,17 @@ export function AdminPanelDialog({
             <p data-testid="admin-detail-memberships-empty">None.</p>
           ) : (
             <ul data-testid="admin-detail-memberships-list">
+              {/*
+                Named rather than a bare id (Codex M4-RR-04): a UUID that
+                appears nowhere else in the UI does not tell an operator which
+                List the account can reach. Falls back to the id only when the
+                List is genuinely no longer resolvable.
+              */}
               {detail.memberships.map((membership) => (
                 <li key={membership.sheetId}>
-                  List {membership.sheetId} — {membership.role}
+                  {membership.displayName ?? `List ${membership.sheetId}`}
+                  {membership.sheetState === null ? '' : ` (${membership.sheetState})`} —{' '}
+                  {membership.role}
                 </li>
               ))}
             </ul>

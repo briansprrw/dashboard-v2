@@ -102,15 +102,15 @@ describe('AdminPanelDialog', () => {
     expect(screen.getByTestId('admin-detail-memberships-empty')).toBeInTheDocument();
   });
 
-  it('identifies which memberships the account holds, not just a count (M4-QA-06)', async () => {
+  it('names the Lists an account is a member of, not just their ids (M4-QA-06, Codex M4-RR-04)', async () => {
     const props = baseProps();
     props.loadUserDetail = vi.fn().mockResolvedValue(
       detail({
         memberships: [
           {
             sheetId: 'sheet-2',
-            userId: 'user-9',
-            displayName: null,
+            displayName: 'Shared planning List',
+            sheetState: 'active',
             role: 'editor',
             createdAt: 0,
           },
@@ -121,8 +121,34 @@ describe('AdminPanelDialog', () => {
     await lookup();
 
     const list = screen.getByTestId('admin-detail-memberships-list');
-    expect(list).toHaveTextContent('sheet-2');
+    // The operational point of the fix: a human-readable List identity, not a
+    // UUID that appears nowhere else in the UI.
+    expect(list).toHaveTextContent('Shared planning List');
+    expect(list).toHaveTextContent('active');
     expect(list).toHaveTextContent('editor');
+  });
+
+  it('falls back to the raw id when a membership List cannot be resolved', async () => {
+    const props = baseProps();
+    props.loadUserDetail = vi.fn().mockResolvedValue(
+      detail({
+        memberships: [
+          {
+            sheetId: 'sheet-2',
+            displayName: null,
+            sheetState: null,
+            role: 'viewer',
+            createdAt: 0,
+          },
+        ],
+      })
+    );
+    render(<AdminPanelDialog {...props} />);
+    await lookup();
+
+    const list = screen.getByTestId('admin-detail-memberships-list');
+    expect(list).toHaveTextContent('sheet-2');
+    expect(list).toHaveTextContent('viewer');
   });
 
   it('shows a distinct message for an email with no account (404)', async () => {

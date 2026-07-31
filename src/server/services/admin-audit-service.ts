@@ -16,6 +16,22 @@ import type { ServiceDeps } from './service-context';
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 
+/**
+ * The page size this service will actually use for a requested limit
+ * (M4-RR-02).
+ *
+ * Exported because the route must build its `nextCursor` from the *same*
+ * number the query used. Previously the service clamped internally while the
+ * route compared the returned row count against the caller's raw value, so
+ * `?limit=201` returned 200 rows and `nextCursor: null` — `200 >= 201` is
+ * false — silently truncating the stream at exactly the point an operator
+ * paging a large audit history would need it to continue.
+ */
+export function resolveAuditLimit(limit?: number): number {
+  if (limit === undefined || !Number.isFinite(limit)) return DEFAULT_LIMIT;
+  return Math.min(MAX_LIMIT, Math.max(1, Math.round(limit)));
+}
+
 export class AdminAuditService {
   constructor(private readonly deps: ServiceDeps) {}
 
@@ -24,8 +40,7 @@ export class AdminAuditService {
   }
 
   private clampLimit(limit?: number): number {
-    if (limit === undefined || !Number.isFinite(limit)) return DEFAULT_LIMIT;
-    return Math.min(MAX_LIMIT, Math.max(1, Math.round(limit)));
+    return resolveAuditLimit(limit);
   }
 
   /** M4-QA-08: pages beyond the first `limit` rows via a `(createdAt, id)` cursor rather than an offset. */
