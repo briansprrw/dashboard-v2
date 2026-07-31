@@ -18,6 +18,7 @@ import { createMockEnv } from '../fixtures/mock-env';
 const PROTECTED_ROUTES: [string, string][] = [
   ['GET', '/api/v1/sheets'],
   ['POST', '/api/v1/sheets'],
+  ['GET', '/api/v1/sheets/recycled'],
   ['GET', '/api/v1/sheets/11111111-1111-4111-8111-111111111111'],
   ['PATCH', '/api/v1/sheets/11111111-1111-4111-8111-111111111111'],
   ['DELETE', '/api/v1/sheets/11111111-1111-4111-8111-111111111111'],
@@ -35,8 +36,17 @@ const PROTECTED_ROUTES: [string, string][] = [
   ['POST', '/api/v1/admin/tasks/22222222-2222-4222-8222-222222222222/restore'],
   ['DELETE', '/api/v1/admin/tasks/22222222-2222-4222-8222-222222222222'],
   ['GET', '/api/v1/admin/sheets/11111111-1111-4111-8111-111111111111'],
+  ['DELETE', '/api/v1/admin/sheets/11111111-1111-4111-8111-111111111111'],
+  ['POST', '/api/v1/admin/users/lookup'],
+  ['GET', '/api/v1/admin/users/33333333-3333-4333-8333-333333333333'],
   ['POST', '/api/v1/admin/users/33333333-3333-4333-8333-333333333333/role'],
   ['POST', '/api/v1/admin/users/33333333-3333-4333-8333-333333333333/disable'],
+  ['DELETE', '/api/v1/admin/users/33333333-3333-4333-8333-333333333333'],
+  ['GET', '/api/v1/admin/audit'],
+  ['GET', '/api/v1/admin/audit/sheet/11111111-1111-4111-8111-111111111111'],
+  ['POST', '/api/v1/users/lookup'],
+  ['GET', '/api/v1/users/me/sheet-preferences'],
+  ['PUT', '/api/v1/users/me/sheet-preferences'],
 ];
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);

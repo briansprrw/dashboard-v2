@@ -456,6 +456,11 @@ export class UserRepository {
    * delete the owned Lists first.
    */
   async deletePermanently(id: string): Promise<void> {
-    await this.db.prepare('DELETE FROM users WHERE id = ?1').bind(id).run();
+    await this.prepareDeletePermanently(id).run();
+  }
+
+  /** Same statement as `deletePermanently`, unexecuted, for batching with owned-List deletes and an audit row. */
+  prepareDeletePermanently(id: string): D1PreparedStatement {
+    return this.db.prepare('DELETE FROM users WHERE id = ?1').bind(id);
   }
 }

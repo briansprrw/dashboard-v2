@@ -194,4 +194,37 @@ export class AdminRecoveryService {
     }
     return restored;
   }
+
+  /**
+   * Permanently deletes a recycled List by opaque identity, cascading to its
+   * tasks, task history, and memberships (`ON DELETE CASCADE`,
+   * migrations/0002) — the same "List and everything in it, as one unit"
+   * lifecycle `SheetService.purge` enforces for an owner's own purge, reached
+   * here through the administrative recovery surface instead.
+   */
+  async purgeSheet(actor: Actor, sheetId: string): Promise<void> {
+    this.requireAdmin(actor);
+
+    const existing = await this.deps.repos.sheets.findRecoveryStateById(sheetId);
+    if (existing === null) {
+      throw new AppError(404, 'NOT_FOUND', 'The requested resource was not found.');
+    }
+    if (existing.state !== 'recycled') {
+      throw new AppError(
+        409,
+        'NOT_RECYCLED',
+        'A List must be in the recycle bin before it can be permanently deleted.'
+      );
+    }
+
+    await this.deps.db.batch([
+      this.deps.repos.sheets.prepareDeletePermanently(sheetId),
+      buildAuditStatement(this.deps, {
+        actorUserId: actor.userId,
+        action: 'sheet.purged.admin',
+        targetType: 'sheet',
+        targetId: sheetId,
+      }),
+    ]);
+  }
 }

@@ -72,6 +72,41 @@ export class MembershipRepository {
       .bind(input.sheetId, input.userId, input.role, input.now, input.createdByUserId);
   }
 
+  /**
+   * Same statement as `prepareUpsert`, but only takes effect while the List's
+   * `owner_user_id` still matches `expectedOwnerUserId` (M4-QA-02). Protects
+   * against the interleaving where request A authorizes as owner, request B
+   * transfers ownership and commits, and request A's own grant then lands
+   * after B — with this guard, A's write affects zero rows instead, and the
+   * caller (checking the batch result's `meta.changes`) reports a conflict
+   * rather than silently applying a stale owner's decision.
+   *
+   * A plain `UPDATE ... WHERE` guard would not work for an `INSERT ... ON
+   * CONFLICT` — the guard has to gate the whole statement, so it is expressed
+   * as a `WHERE EXISTS` against `sheets` rather than a join condition on the
+   * insert target.
+   */
+  prepareUpsertIfOwner(
+    input: UpsertMembershipInput,
+    expectedOwnerUserId: string
+  ): D1PreparedStatement {
+    return this.db
+      .prepare(
+        `INSERT INTO sheet_memberships (sheet_id, user_id, role, created_at, created_by_user_id)
+         SELECT ?1, ?2, ?3, ?4, ?5
+         WHERE EXISTS (SELECT 1 FROM sheets WHERE id = ?1 AND owner_user_id = ?6)
+         ON CONFLICT (sheet_id, user_id) DO UPDATE SET role = excluded.role`
+      )
+      .bind(
+        input.sheetId,
+        input.userId,
+        input.role,
+        input.now,
+        input.createdByUserId,
+        expectedOwnerUserId
+      );
+  }
+
   async find(sheetId: string, userId: string): Promise<SheetMembershipRecord | null> {
     const row = await this.db
       .prepare(
@@ -131,5 +166,19 @@ export class MembershipRepository {
     return this.db
       .prepare('DELETE FROM sheet_memberships WHERE sheet_id = ?1 AND user_id = ?2')
       .bind(sheetId, userId);
+  }
+
+  /** Same statement as `prepareRemove`, guarded by the List's current owner (M4-QA-02). */
+  prepareRemoveIfOwner(
+    sheetId: string,
+    userId: string,
+    expectedOwnerUserId: string
+  ): D1PreparedStatement {
+    return this.db
+      .prepare(
+        `DELETE FROM sheet_memberships WHERE sheet_id = ?1 AND user_id = ?2
+         AND EXISTS (SELECT 1 FROM sheets WHERE id = ?1 AND owner_user_id = ?3)`
+      )
+      .bind(sheetId, userId, expectedOwnerUserId);
   }
 }

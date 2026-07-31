@@ -39,6 +39,14 @@ sheetRoutes.post('/', async (c) => {
   return c.json({ sheet: toSheetDto(sheet) }, 201);
 });
 
+// Registered before `/:sheetId` so `recycled` is never captured as a sheetId
+// param.
+sheetRoutes.get('/recycled', async (c) => {
+  const services = buildServices(c.env, c.get('requestId'));
+  const sheets = await services.sheets.listRecycled(c.get('actor'));
+  return c.json({ sheets: sheets.map(toSheetDto) });
+});
+
 sheetRoutes.get('/:sheetId', async (c) => {
   const sheetId = requireId(c.req.param('sheetId'), 'sheetId');
   const services = buildServices(c.env, c.get('requestId'));
@@ -75,11 +83,27 @@ sheetRoutes.delete('/:sheetId', async (c) => {
   return c.json({ purged: true });
 });
 
+/**
+ * Includes each member's display name (M4-QA-04): the owner already has a
+ * resolved relationship with everyone on this list — the same authorization
+ * `listMembers` itself already enforces — so resolving the name they are
+ * already entitled to see is not a new disclosure, only a completed one. A
+ * plain per-row lookup rather than a batch API: List membership counts are
+ * small (no V2 List is expected to have more than a handful of members),
+ * so this trades a theoretical N+1 for not introducing a new repository
+ * method whose only caller is this one route.
+ */
 sheetRoutes.get('/:sheetId/members', async (c) => {
   const sheetId = requireId(c.req.param('sheetId'), 'sheetId');
   const services = buildServices(c.env, c.get('requestId'));
   const members = await services.sheets.listMembers(c.get('actor'), sheetId);
-  return c.json({ members: members.map(toMembershipDto) });
+  const withNames = await Promise.all(
+    members.map(async (member) => {
+      const user = await services.repos.users.findById(member.userId);
+      return toMembershipDto(member, user?.displayName ?? null);
+    })
+  );
+  return c.json({ members: withNames });
 });
 
 sheetRoutes.post('/:sheetId/members', async (c) => {
@@ -92,7 +116,8 @@ sheetRoutes.post('/:sheetId/members', async (c) => {
     body.userId,
     body.role
   );
-  return c.json({ membership: toMembershipDto(membership) }, 201);
+  const target = await services.repos.users.findById(membership.userId);
+  return c.json({ membership: toMembershipDto(membership, target?.displayName ?? null) }, 201);
 });
 
 sheetRoutes.delete('/:sheetId/members/:userId', async (c) => {

@@ -13,6 +13,7 @@ import { authRoutes } from './routes/auth';
 import { healthHandler } from './routes/health';
 import { sheetRoutes } from './routes/sheets';
 import { taskRoutes } from './routes/tasks';
+import { userRoutes } from './routes/users';
 
 const app = new Hono<AppEnv>();
 
@@ -63,10 +64,12 @@ apiV1.use('/sheets/*', authenticate);
 apiV1.use('/sheets', authenticate);
 apiV1.use('/tasks/*', authenticate);
 apiV1.use('/admin/*', authenticate);
+apiV1.use('/users/*', authenticate);
 
 apiV1.route('/sheets', sheetRoutes);
 apiV1.route('/tasks', taskRoutes);
 apiV1.route('/admin', adminRoutes);
+apiV1.route('/users', userRoutes);
 
 // Hono's `.notFound()` hook only fires when this sub-app's own fetch/request
 // is invoked directly; once mounted via `app.route()`, an unmatched path

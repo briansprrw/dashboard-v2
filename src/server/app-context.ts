@@ -14,16 +14,20 @@ import type { Env } from './env';
 import { AppError } from './errors/app-error';
 import { AuditEventRepository } from './repositories/audit-event-repository';
 import { MembershipRepository } from './repositories/membership-repository';
+import { PreferencesRepository } from './repositories/preferences-repository';
 import { SheetRepository } from './repositories/sheet-repository';
 import { TaskEventRepository } from './repositories/task-event-repository';
 import { TaskRepository } from './repositories/task-repository';
 import { UserRepository } from './repositories/user-repository';
 import { AccountService } from './services/account-service';
+import { AdminAuditService } from './services/admin-audit-service';
 import { AdminRecoveryService } from './services/admin-recovery-service';
 import type { Clock, Repositories, ServiceDeps } from './services/service-context';
 import { systemClock } from './services/service-context';
+import { SheetPreferencesService } from './services/sheet-preferences-service';
 import { SheetService } from './services/sheet-service';
 import { TaskService } from './services/task-service';
+import { UserDirectoryService } from './services/user-directory-service';
 
 export function buildRepositories(env: Env): Repositories {
   const db = env.DASH2_DB;
@@ -34,6 +38,7 @@ export function buildRepositories(env: Env): Repositories {
     tasks: new TaskRepository(db),
     taskEvents: new TaskEventRepository(db),
     auditEvents: new AuditEventRepository(db),
+    preferences: new PreferencesRepository(db),
   };
 }
 
@@ -43,6 +48,9 @@ export interface AppServices {
   tasks: TaskService;
   accounts: AccountService;
   adminRecovery: AdminRecoveryService;
+  adminAudit: AdminAuditService;
+  userDirectory: UserDirectoryService;
+  sheetPreferences: SheetPreferencesService;
 }
 
 export function buildServices(
@@ -60,6 +68,9 @@ export function buildServices(
     tasks: new TaskService(deps, sheets),
     accounts: new AccountService(deps),
     adminRecovery: new AdminRecoveryService(deps),
+    adminAudit: new AdminAuditService(deps),
+    userDirectory: new UserDirectoryService(deps),
+    sheetPreferences: new SheetPreferencesService(deps),
   };
 }
 

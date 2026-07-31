@@ -111,6 +111,17 @@ export class SheetService {
   }
 
   /**
+   * The actor's own List recycle bin. Owner-scoped, not the administrative
+   * recovery surface (`AdminRecoveryService`) — a List only ever appears here
+   * for the person who owned it, matching the same "owner or admin may
+   * restore" rule `recycle`/`restore`/`purge` already enforce per-List.
+   */
+  async listRecycled(actor: Actor): Promise<SheetRecord[]> {
+    if (!isEligible(actor)) throw denyAsNotFound();
+    return this.deps.repos.sheets.listRecycledOwned(actor.userId);
+  }
+
+  /**
    * Creates a List owned by the actor. The creator is always the owner: there
    * is no path that creates a List owned by someone else, which is what makes
    * "exactly one owner, always set" true from the first moment of the row's
@@ -186,6 +197,7 @@ export class SheetService {
     }
 
     const now = this.deps.clock();
+    const previousRole = await this.deps.repos.memberships.findRole(sheetId, targetUserId);
     const membershipInput = {
       sheetId,
       userId: targetUserId,
@@ -193,17 +205,32 @@ export class SheetService {
       createdByUserId: actor.userId,
       now,
     };
-    await this.deps.db.batch([
-      this.deps.repos.memberships.prepareUpsert(membershipInput),
+    // Guarded by the owner observed at `authorize()` above (M4-QA-02): if a
+    // concurrent transfer already moved ownership away from `sheet.ownerUserId`
+    // between that read and this write, the guard clause matches zero rows and
+    // the write silently does nothing rather than applying a decision made
+    // under authority that no longer holds. `changes === 0` below turns that
+    // into an explicit conflict instead of a false "success."
+    const membershipBatchResults = await this.deps.db.batch([
+      this.deps.repos.memberships.prepareUpsertIfOwner(membershipInput, sheet.ownerUserId),
       buildAuditStatement(this.deps, {
         actorUserId: actor.userId,
-        action: 'sheet.membership.granted',
+        action:
+          previousRole === null ? 'sheet.membership.granted' : 'sheet.membership.role_changed',
         targetType: 'sheet',
         targetId: sheetId,
-        // Opaque identity and the granted level only — never the List's name.
-        metadata: { targetUserId, role },
+        // Opaque identity and the granted level(s) only — never the List's name.
+        metadata:
+          previousRole === null ? { targetUserId, role } : { targetUserId, previousRole, role },
       }),
     ]);
+    if ((membershipBatchResults[0]?.meta.changes ?? 0) === 0) {
+      throw new AppError(
+        409,
+        'OWNERSHIP_CHANGED',
+        'This List’s ownership changed while this request was in progress. Reload and try again.'
+      );
+    }
 
     const membership = await this.deps.repos.memberships.find(sheetId, targetUserId);
     if (membership === null) throw new Error('Membership upsert did not produce a readable row');
@@ -211,15 +238,16 @@ export class SheetService {
   }
 
   async revokeMembership(actor: Actor, sheetId: string, targetUserId: string): Promise<void> {
-    const { context } = await this.authorize(actor, sheetId);
+    const { sheet, context } = await this.authorize(actor, sheetId);
     if (!canManageMembership(actor, context)) throw denyForbidden();
 
     const existing = await this.deps.repos.memberships.find(sheetId, targetUserId);
     if (existing === null)
       throw new AppError(404, 'NOT_FOUND', 'The requested resource was not found.');
 
-    await this.deps.db.batch([
-      this.deps.repos.memberships.prepareRemove(sheetId, targetUserId),
+    // Same owner guard as `grantMembership` (M4-QA-02).
+    const revokeBatchResults = await this.deps.db.batch([
+      this.deps.repos.memberships.prepareRemoveIfOwner(sheetId, targetUserId, sheet.ownerUserId),
       buildAuditStatement(this.deps, {
         actorUserId: actor.userId,
         action: 'sheet.membership.revoked',
@@ -228,6 +256,13 @@ export class SheetService {
         metadata: { targetUserId },
       }),
     ]);
+    if ((revokeBatchResults[0]?.meta.changes ?? 0) === 0) {
+      throw new AppError(
+        409,
+        'OWNERSHIP_CHANGED',
+        'This List’s ownership changed while this request was in progress. Reload and try again.'
+      );
+    }
   }
 
   /**
@@ -282,8 +317,18 @@ export class SheetService {
 
     const previousOwnerUserId = sheet.ownerUserId;
     const now = this.deps.clock();
-    await this.deps.db.batch([
-      ...this.deps.repos.sheets.prepareTransferOwnership(sheetId, newOwnerUserId, now),
+    // Guarded by `previousOwnerUserId` (M4-QA-02): if a concurrent transfer
+    // already moved ownership since `authorize()` read it, the owner-changing
+    // UPDATE's guard clause matches zero rows and this batch's membership
+    // DELETE lands with nothing to undo — the second `meta.changes` check
+    // below is what actually detects and reports the conflict.
+    const transferBatchResults = await this.deps.db.batch([
+      ...this.deps.repos.sheets.prepareTransferOwnershipIfOwner(
+        sheetId,
+        newOwnerUserId,
+        previousOwnerUserId,
+        now
+      ),
       buildAuditStatement(this.deps, {
         actorUserId: actor.userId,
         action: 'sheet.ownership.transferred',
@@ -292,6 +337,16 @@ export class SheetService {
         metadata: { previousOwnerUserId, newOwnerUserId },
       }),
     ]);
+    // Index 1 is the owner-changing UPDATE (index 0 is the membership DELETE,
+    // which has nothing to guard — it is scoped to `newOwnerUserId`, not the
+    // current owner, so it is unaffected by which owner won the race).
+    if ((transferBatchResults[1]?.meta.changes ?? 0) === 0) {
+      throw new AppError(
+        409,
+        'OWNERSHIP_CHANGED',
+        'This List’s ownership changed while this request was in progress. Reload and try again.'
+      );
+    }
 
     const updated = await this.deps.repos.sheets.findById(sheetId);
     if (updated === null) throw denyAsNotFound();

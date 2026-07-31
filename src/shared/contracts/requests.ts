@@ -9,6 +9,11 @@ import { MEMBERSHIP_ROLES, TASK_PRIORITIES, TASK_STATUSES } from '../domain/enum
 import type { MembershipRole, TaskPriority, TaskStatus } from '../domain/enums';
 import { LIMITS } from '../domain/limits';
 import {
+  fitsSheetPreferencesSizeLimit,
+  sanitizeSheetPreferences,
+  type SheetPreferences,
+} from '../domain/sheet-preferences';
+import {
   FieldErrors,
   rejectUnknownFields,
   requireObject,
@@ -19,6 +24,7 @@ import {
   validateId,
   validateOptionalString,
   validateString,
+  ValidationError,
 } from './validation';
 
 export interface CreateSheetRequest {
@@ -40,6 +46,30 @@ export function parseCreateSheet(input: unknown): CreateSheetRequest {
 
 export type RenameSheetRequest = CreateSheetRequest;
 export const parseRenameSheet = parseCreateSheet;
+
+export interface LookupUserByEmailRequest {
+  email: string;
+}
+
+const LOOKUP_USER_BY_EMAIL_FIELDS = ['email'] as const;
+
+/**
+ * The sharing/ownership-transfer entry point: an owner names a collaborator by
+ * their exact email (M4-D2 — no directory or partial search exists; V2 has no
+ * username yet, M0 §2). Bounds match `LIMITS.email`, the same bound the
+ * identity row itself is stored under, so a value that passes here cannot
+ * fail to find a real row purely on length.
+ */
+export function parseLookupUserByEmail(input: unknown): LookupUserByEmailRequest {
+  const body = requireObject(input);
+  rejectUnknownFields(body, LOOKUP_USER_BY_EMAIL_FIELDS);
+
+  const errors = new FieldErrors();
+  const email = validateString(errors, 'email', body.email, LIMITS.email);
+  errors.throwIfAny();
+
+  return { email: email as string };
+}
 
 export interface GrantMembershipRequest {
   userId: string;
@@ -81,6 +111,59 @@ export function parseTransferOwnership(input: unknown): TransferOwnershipRequest
   errors.throwIfAny();
 
   return { newOwnerUserId: newOwnerUserId as string };
+}
+
+const SHEET_PREFERENCES_FIELDS = ['sheetOrder', 'hiddenSheetIds'] as const;
+// Matches the per-field cap in `sheet-preferences.ts` (M4-QA-05) — kept in
+// sync there rather than imported, since the domain module intentionally has
+// no dependency on the request-validation layer.
+const MAX_SHEET_PREFERENCE_IDS = 100;
+
+function parseIdArray(errors: FieldErrors, field: string, value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    errors.add(field, 'Expected an array of identifiers.');
+    return [];
+  }
+  if (value.length > MAX_SHEET_PREFERENCE_IDS) {
+    errors.add(field, `Must contain at most ${MAX_SHEET_PREFERENCE_IDS} identifiers.`);
+    return [];
+  }
+  const ids: string[] = [];
+  value.forEach((entry, index) => {
+    const id = validateId(errors, `${field}[${index}]`, entry);
+    if (id !== null) ids.push(id);
+  });
+  return ids;
+}
+
+/**
+ * The one server-backed preference V2 launches with (M4.3, M4-D3): a user's
+ * own sheet order and hidden-sheet set. Every id is validated as a real
+ * identifier here — stricter than `sanitizeSheetPreferences`, which is the
+ * lenient recovery path for a stored document that predates a shape change,
+ * not the boundary a client request should be allowed to slip malformed
+ * ids through.
+ */
+export function parseSheetPreferences(input: unknown): SheetPreferences {
+  const body = requireObject(input);
+  rejectUnknownFields(body, SHEET_PREFERENCES_FIELDS);
+
+  const errors = new FieldErrors();
+  const sheetOrder = parseIdArray(errors, 'sheetOrder', body.sheetOrder ?? []);
+  const hiddenSheetIds = parseIdArray(errors, 'hiddenSheetIds', body.hiddenSheetIds ?? []);
+  errors.throwIfAny();
+
+  const parsed = sanitizeSheetPreferences({ sheetOrder, hiddenSheetIds });
+  // The real enforced bound (M4-QA-05): a request under the per-field id
+  // count cap can still, combined across both fields, serialize past the
+  // database's own `preferences_json` CHECK. Checked after both fields are
+  // known, not per-field, since it is their combined size that matters.
+  if (!fitsSheetPreferencesSizeLimit(parsed)) {
+    throw new ValidationError({
+      sheetOrder: 'Combined sheetOrder and hiddenSheetIds are too large to store.',
+    });
+  }
+  return parsed;
 }
 
 export interface TaskFieldsRequest {

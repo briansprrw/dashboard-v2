@@ -79,6 +79,41 @@ describe('App', () => {
     expect(screen.getByTestId('task-row')).toBeInTheDocument();
   });
 
+  it('lets a new user create their first List from the empty state (M4-QA-01)', async () => {
+    const created = makeSheet({ id: 'sheet-new', displayName: 'Groceries' });
+    let sheetsCallCount = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/v1/auth/session'))
+        return Promise.resolve(jsonResponse(200, { user: SESSION_USER }));
+      if (url.endsWith('/api/v1/sheets') && init?.method === 'POST') {
+        return Promise.resolve(jsonResponse(201, { sheet: created }));
+      }
+      if (url.endsWith('/api/v1/sheets')) {
+        sheetsCallCount += 1;
+        return Promise.resolve(
+          jsonResponse(200, { sheets: sheetsCallCount === 1 ? [] : [created] })
+        );
+      }
+      if (url.endsWith(`/api/v1/sheets/${created.id}/tasks`))
+        return Promise.resolve(jsonResponse(200, { tasks: [] }));
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByTestId('app-state-empty')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'New List' }));
+    fireEvent.change(screen.getByTestId('create-sheet-input'), {
+      target: { value: 'Groceries' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => expect(screen.getByTestId('app-state-ready')).toBeInTheDocument());
+    expect(screen.getByText('Groceries')).toBeInTheDocument();
+  });
+
   it('quick-completing a task calls the update endpoint and offers a real Undo', async () => {
     const sheet = makeSheet();
     const task = makeTask({ id: 'task-1', status: 'not_started' });

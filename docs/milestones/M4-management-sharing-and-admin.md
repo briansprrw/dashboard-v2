@@ -1,6 +1,6 @@
 # M4 — Management, Sharing, and Administration
 
-**Status:** Not Started  
+**Status:** In Progress — M4.1–M4.4 implemented by Claude (uncommitted); Codex QA pass 1 found 9 findings (0 P0/4 P1/5 P2), all addressed in a correction round; re-review pending. M4.5 (Opus `xhigh` adversarial permission review) not yet run. See `.handoffs/M4-handoff.md` for full packet-by-packet and correction-round evidence.  
 **Owner:** Brian  
 **Implementation lead:** Claude  
 **PM/QA:** Codex  
@@ -110,7 +110,9 @@ Redeploy the prior staging application and follow the tested D1 restore/forward-
 
 | ID | Date | Decision | Owner | Rationale/impact |
 |---|---|---|---|---|
-| M4-D1 | — | Pending: management launch slice | Brian | Scope gate |
+| M4-D1 | 2026-07-30 | Management launch slice: implement M4.1–M4.4 in full this session (lifecycle, membership/ownership, preferences, administration/recovery). Resolved by Brian's direct instruction ("Implement M4.0-4.4... step through those 4 without stopping") rather than a standalone scope discussion. | Brian | Scope gate — unblocked implementation of all four packets in one pass. |
+| M4-D2 | 2026-07-30 | No user directory or search exists in V2 (no username until V2.1; V1 not yet migrated). A List owner identifies a share/ownership-transfer target by their **exact email** through a narrow `POST /users/lookup` endpoint — no partial search, no listing/directory. | Brian | Resolves how M4.2's membership/ownership UI names a target user without introducing a directory-disclosure surface. Implemented as `UserDirectoryService`/`toUserLookupDto` (id + display name only, never the target's own email, role, or state; a disabled/recycled account answers 404 identically to no account at all). |
+| M4-D3 | 2026-07-30 | M4.3 in-scope wording ("curated global/device preferences") conflicts with M0's approved record ("V2 display preferences are stored locally on the browser/device and are not synchronized to the user profile"; synchronized profiles are V2.1). Resolved: **one narrow server-backed exception** — a user's own sheet order and per-List hidden/visible state — stored via the existing `user_preferences` table. Every other display preference (theme, zoom, density, due bands, column bounds, refresh interval, clock, emoji, closed-task visibility, collapse state) remains fully device-local exactly as M3.3 built it. | Brian | Narrows M4.3 to a scoped exception rather than a general synced-profile system, keeping M0 §7/§11's V2.1 boundary intact. |
 
 ## Risk Log
 
@@ -123,11 +125,33 @@ Redeploy the prior staging application and follow the tested D1 restore/forward-
 ## PM/QA Sign-off
 
 ```text
-Claude status: Not Started
-Claude handoff date: —
-Codex review: Pending
-Open P0/P1: 0
+Claude status: Ready for re-review (M4.1–M4.4 implementation, plus a correction round
+  addressing all nine findings from Codex's pass-1 QA review — M4-QA-01 through M4-QA-09,
+  0 P0 / 4 P1 / 5 P2 at the time of that review). M4.5 Opus xhigh adversarial review has not
+  run and is still required before this milestone can exit — see M4-R1.
+Claude handoff date: 2026-07-31 (.handoffs/M4-handoff.md — four implementation packet
+  sections plus a correction-round section with per-finding disposition and evidence)
+Codex review: Pass 1 complete (Changes Requested, 2026-07-30); re-review pending
+Open P0/P1: 0 self-identified after the correction round; M4-R1 (P0, ownership/access
+  escalation) remains Open pending M4.5's adversarial pass against the new account-purge
+  cascade and the M4-QA-02 stale-authority-write fix specifically
 Brian decision: Pending
 Decision date: —
-Notes: —
+Notes: Nothing committed. M4.1 added GET /sheets/recycled. M4.2 added POST /users/lookup
+  (M4-D2) plus membership/ownership UI. M4.3 added the narrowed sheet-order/visibility
+  preference (M4-D3) plus GET/PUT /users/me/sheet-preferences. M4.4 added account purge
+  (cascades to every owned List), admin List purge, admin user-detail, and admin audit-log
+  read routes, plus an admin UI panel. The correction round added: a List-creation UI
+  (M4-QA-01, previously entirely missing); an owner-guarded compare-and-set write path for
+  membership grant/revoke/ownership-transfer against a concurrent transfer (M4-QA-02); an
+  admin-only exact-email lookup that can find disabled/recycled accounts (M4-QA-03); member
+  display names and a role-change control (M4-QA-04); a combined serialized-size guard for
+  sheet preferences at both the request and service layers (M4-QA-05); last-activity and
+  named List/membership rendering in the admin detail view (M4-QA-06); a distinct
+  `sheet.membership.role_changed` audit action with previous/new role (M4-QA-07, alongside
+  M4-QA-02); cursor-based audit pagination with no duplication/omission across pages,
+  including tied timestamps (M4-QA-08); and a per-actor rate limit on the sharing email
+  lookup (M4-QA-09). Known gaps unchanged from before the correction round: no dedicated UI
+  for the admin List-recovery bin or the audit log (both exist as tested API endpoints
+  only) — a product call for Brian before milestone exit.
 ```

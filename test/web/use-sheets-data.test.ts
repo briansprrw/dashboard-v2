@@ -94,6 +94,318 @@ describe('useSheetsData', () => {
     await waitFor(() => expect(result.current.data.status).toBe('error'));
   });
 
+  describe('createSheet (M4-QA-01)', () => {
+    it('creates a List and refreshes the sheet list', async () => {
+      const created = makeSheet({ id: 'sheet-new', displayName: 'Groceries' });
+      let sheetsCallCount = 0;
+      const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/api/v1/sheets') && init?.method === 'POST') {
+          return Promise.resolve(jsonResponse(201, { sheet: created }));
+        }
+        if (url.endsWith('/api/v1/sheets')) {
+          sheetsCallCount += 1;
+          return Promise.resolve(
+            jsonResponse(200, { sheets: sheetsCallCount === 1 ? [] : [created] })
+          );
+        }
+        if (url.endsWith(`/api/v1/sheets/${created.id}/tasks`))
+          return Promise.resolve(jsonResponse(200, { tasks: [] }));
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { result } = renderHook(() => useSheetsData(true, 60_000));
+      await waitFor(() => expect(result.current.data.status).toBe('empty'));
+
+      const returned = await result.current.createSheet({ displayName: 'Groceries' });
+      expect(returned.displayName).toBe('Groceries');
+      await waitFor(() =>
+        expect(result.current.data).toMatchObject({ status: 'ready', sheets: [{ sheet: created }] })
+      );
+    });
+
+    it('surfaces a server denial without creating a List', async () => {
+      const onUnauthenticated = vi.fn();
+      const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/api/v1/sheets') && init?.method === 'POST') {
+          return Promise.resolve(
+            jsonResponse(401, { error: { code: 'UNAUTHENTICATED', message: 'Sign in again.' } })
+          );
+        }
+        if (url.endsWith('/api/v1/sheets'))
+          return Promise.resolve(jsonResponse(200, { sheets: [] }));
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { result } = renderHook(() => useSheetsData(true, 60_000, true, onUnauthenticated));
+      await waitFor(() => expect(result.current.data.status).toBe('empty'));
+
+      await expect(result.current.createSheet({ displayName: 'x' })).rejects.toThrow();
+      expect(onUnauthenticated).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('sheet lifecycle actions (M4.1)', () => {
+    it('renames a List and refreshes the sheet list', async () => {
+      const sheet = makeSheet({ displayName: 'Before' });
+      const renamed = { ...sheet, displayName: 'After' };
+      let sheetsCallCount = 0;
+      const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith(`/api/v1/sheets/${sheet.id}`) && init?.method === 'PATCH') {
+          return Promise.resolve(jsonResponse(200, { sheet: renamed }));
+        }
+        if (url.endsWith('/api/v1/sheets')) {
+          sheetsCallCount += 1;
+          return Promise.resolve(
+            jsonResponse(200, { sheets: [sheetsCallCount === 1 ? sheet : renamed] })
+          );
+        }
+        if (url.endsWith(`/api/v1/sheets/${sheet.id}/tasks`))
+          return Promise.resolve(jsonResponse(200, { tasks: [] }));
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { result } = renderHook(() => useSheetsData(true, 60_000));
+      await waitFor(() => expect(result.current.data.status).toBe('ready'));
+
+      const returned = await result.current.renameSheet(sheet.id, { displayName: 'After' });
+      expect(returned.displayName).toBe('After');
+      await waitFor(() =>
+        expect(result.current.data).toMatchObject({ sheets: [{ sheet: renamed }] })
+      );
+    });
+
+    it('recycles a List and refreshes', async () => {
+      const sheet = makeSheet();
+      let recycleCalled = false;
+      const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith(`/api/v1/sheets/${sheet.id}/recycle`) && init?.method === 'POST') {
+          recycleCalled = true;
+          return Promise.resolve(jsonResponse(200, { recycled: true }));
+        }
+        if (url.endsWith('/api/v1/sheets'))
+          return Promise.resolve(jsonResponse(200, { sheets: recycleCalled ? [] : [sheet] }));
+        if (url.endsWith(`/api/v1/sheets/${sheet.id}/tasks`))
+          return Promise.resolve(jsonResponse(200, { tasks: [] }));
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { result } = renderHook(() => useSheetsData(true, 60_000));
+      await waitFor(() => expect(result.current.data.status).toBe('ready'));
+
+      await result.current.recycleSheet(sheet.id);
+      expect(recycleCalled).toBe(true);
+      await waitFor(() => expect(result.current.data.status).toBe('empty'));
+    });
+
+    it('lists recycled Lists without disturbing the main sheets state', async () => {
+      const sheet = makeSheet();
+      const recycled = makeSheet({
+        id: 'sheet-2',
+        state: 'recycled',
+        recycledAt: 1_800_000_005_000,
+      });
+      const fetchMock = vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/api/v1/sheets/recycled'))
+          return Promise.resolve(jsonResponse(200, { sheets: [recycled] }));
+        if (url.endsWith('/api/v1/sheets'))
+          return Promise.resolve(jsonResponse(200, { sheets: [sheet] }));
+        if (url.endsWith(`/api/v1/sheets/${sheet.id}/tasks`))
+          return Promise.resolve(jsonResponse(200, { tasks: [] }));
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { result } = renderHook(() => useSheetsData(true, 60_000));
+      await waitFor(() => expect(result.current.data.status).toBe('ready'));
+
+      const bin = await result.current.listRecycledSheets();
+      expect(bin).toEqual([recycled]);
+      // Listing the recycle bin must not itself mutate the main ready state.
+      expect(result.current.data).toMatchObject({
+        status: 'ready',
+        sheets: [{ sheet, tasks: [] }],
+      });
+    });
+
+    it('surfaces a 403 denial from a lifecycle action as a rejection without forcing sign-out', async () => {
+      const sheet = makeSheet({ accessLevel: 'viewer' });
+      const onUnauthenticated = vi.fn();
+      const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith(`/api/v1/sheets/${sheet.id}/recycle`) && init?.method === 'POST') {
+          return Promise.resolve(
+            jsonResponse(403, { error: { code: 'FORBIDDEN', message: 'Not allowed.' } })
+          );
+        }
+        if (url.endsWith('/api/v1/sheets'))
+          return Promise.resolve(jsonResponse(200, { sheets: [sheet] }));
+        if (url.endsWith(`/api/v1/sheets/${sheet.id}/tasks`))
+          return Promise.resolve(jsonResponse(200, { tasks: [] }));
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { result } = renderHook(() => useSheetsData(true, 60_000, true, onUnauthenticated));
+      await waitFor(() => expect(result.current.data.status).toBe('ready'));
+
+      await expect(result.current.recycleSheet(sheet.id)).rejects.toThrow();
+      expect(onUnauthenticated).not.toHaveBeenCalled();
+    });
+
+    it('reports an unauthenticated session (401) from a lifecycle action', async () => {
+      const sheet = makeSheet();
+      const onUnauthenticated = vi.fn();
+      const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith(`/api/v1/sheets/${sheet.id}/recycle`) && init?.method === 'POST') {
+          return Promise.resolve(
+            jsonResponse(401, { error: { code: 'UNAUTHENTICATED', message: 'Sign in again.' } })
+          );
+        }
+        if (url.endsWith('/api/v1/sheets'))
+          return Promise.resolve(jsonResponse(200, { sheets: [sheet] }));
+        if (url.endsWith(`/api/v1/sheets/${sheet.id}/tasks`))
+          return Promise.resolve(jsonResponse(200, { tasks: [] }));
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { result } = renderHook(() => useSheetsData(true, 60_000, true, onUnauthenticated));
+      await waitFor(() => expect(result.current.data.status).toBe('ready'));
+
+      await expect(result.current.recycleSheet(sheet.id)).rejects.toThrow();
+      expect(onUnauthenticated).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('membership and ownership actions (M4.2)', () => {
+    it('looks up a user by email', async () => {
+      const sheet = makeSheet();
+      const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/api/v1/users/lookup') && init?.method === 'POST') {
+          return Promise.resolve(
+            jsonResponse(200, { user: { userId: 'user-9', displayName: 'Priya' } })
+          );
+        }
+        if (url.endsWith('/api/v1/sheets'))
+          return Promise.resolve(jsonResponse(200, { sheets: [sheet] }));
+        if (url.endsWith(`/api/v1/sheets/${sheet.id}/tasks`))
+          return Promise.resolve(jsonResponse(200, { tasks: [] }));
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { result } = renderHook(() => useSheetsData(true, 60_000));
+      await waitFor(() => expect(result.current.data.status).toBe('ready'));
+
+      const found = await result.current.lookupUserByEmail('priya@example.invalid');
+      expect(found).toEqual({ userId: 'user-9', displayName: 'Priya' });
+    });
+
+    it('grants and revokes membership without refreshing the main sheets list', async () => {
+      const sheet = makeSheet();
+      let sheetsCallCount = 0;
+      const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith(`/api/v1/sheets/${sheet.id}/members`) && init?.method === 'POST') {
+          return Promise.resolve(
+            jsonResponse(201, {
+              membership: { sheetId: sheet.id, userId: 'user-9', role: 'editor', createdAt: 0 },
+            })
+          );
+        }
+        if (
+          url.endsWith(`/api/v1/sheets/${sheet.id}/members/user-9`) &&
+          init?.method === 'DELETE'
+        ) {
+          return Promise.resolve(jsonResponse(200, { revoked: true }));
+        }
+        if (url.endsWith('/api/v1/sheets')) {
+          sheetsCallCount += 1;
+          return Promise.resolve(jsonResponse(200, { sheets: [sheet] }));
+        }
+        if (url.endsWith(`/api/v1/sheets/${sheet.id}/tasks`))
+          return Promise.resolve(jsonResponse(200, { tasks: [] }));
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { result } = renderHook(() => useSheetsData(true, 60_000));
+      await waitFor(() => expect(result.current.data.status).toBe('ready'));
+      const callsAfterLoad = sheetsCallCount;
+
+      const membership = await result.current.grantMembership(sheet.id, 'user-9', 'editor');
+      expect(membership.role).toBe('editor');
+      await result.current.revokeMembership(sheet.id, 'user-9');
+
+      // Neither action changes the acting owner's own accessible-sheets list,
+      // so this hook's own refresh() must not have been triggered by either.
+      expect(sheetsCallCount).toBe(callsAfterLoad);
+    });
+
+    it('lists members for a List', async () => {
+      const sheet = makeSheet();
+      const member = { sheetId: sheet.id, userId: 'user-9', role: 'viewer', createdAt: 0 };
+      const fetchMock = vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith(`/api/v1/sheets/${sheet.id}/members`))
+          return Promise.resolve(jsonResponse(200, { members: [member] }));
+        if (url.endsWith('/api/v1/sheets'))
+          return Promise.resolve(jsonResponse(200, { sheets: [sheet] }));
+        if (url.endsWith(`/api/v1/sheets/${sheet.id}/tasks`))
+          return Promise.resolve(jsonResponse(200, { tasks: [] }));
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { result } = renderHook(() => useSheetsData(true, 60_000));
+      await waitFor(() => expect(result.current.data.status).toBe('ready'));
+
+      const members = await result.current.listMembers(sheet.id);
+      expect(members).toEqual([member]);
+    });
+
+    it('transferring ownership refreshes the main sheets list (the actor’s own accessLevel changed)', async () => {
+      const sheet = makeSheet({ accessLevel: 'owner' });
+      const transferred = { ...sheet, ownerUserId: 'user-9', accessLevel: 'editor' as const };
+      let sheetsCallCount = 0;
+      const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith(`/api/v1/sheets/${sheet.id}/ownership`) && init?.method === 'POST') {
+          return Promise.resolve(jsonResponse(200, { sheet: transferred }));
+        }
+        if (url.endsWith('/api/v1/sheets')) {
+          sheetsCallCount += 1;
+          return Promise.resolve(
+            jsonResponse(200, { sheets: [sheetsCallCount === 1 ? sheet : transferred] })
+          );
+        }
+        if (url.endsWith(`/api/v1/sheets/${sheet.id}/tasks`))
+          return Promise.resolve(jsonResponse(200, { tasks: [] }));
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const { result } = renderHook(() => useSheetsData(true, 60_000));
+      await waitFor(() => expect(result.current.data.status).toBe('ready'));
+
+      await result.current.transferOwnership(sheet.id, 'user-9');
+      await waitFor(() =>
+        expect(result.current.data).toMatchObject({ sheets: [{ sheet: transferred }] })
+      );
+    });
+  });
+
   describe('background polling (M3.5)', () => {
     beforeEach(() => {
       vi.useFakeTimers({ shouldAdvanceTime: true });

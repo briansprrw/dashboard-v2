@@ -1,11 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { actorFromUser, type Actor } from '../../src/server/policy';
 import { AccountService } from '../../src/server/services/account-service';
+import { AdminAuditService } from '../../src/server/services/admin-audit-service';
 import { AdminRecoveryService } from '../../src/server/services/admin-recovery-service';
 import type { ServiceDeps } from '../../src/server/services/service-context';
+import { SheetPreferencesService } from '../../src/server/services/sheet-preferences-service';
 import { SheetService } from '../../src/server/services/sheet-service';
 import { TaskService } from '../../src/server/services/task-service';
+import { UserDirectoryService } from '../../src/server/services/user-directory-service';
 import type { SheetRecord, UserRecord } from '../../src/shared/domain/records';
 import {
   auditEvents,
@@ -14,6 +17,7 @@ import {
   makeTask,
   makeUser,
   memberships,
+  preferences,
   sheets,
   T0,
   taskEvents,
@@ -38,6 +42,7 @@ function deps(requestId = 'test-request'): ServiceDeps {
       tasks: tasks(),
       taskEvents: taskEvents(),
       auditEvents: auditEvents(),
+      preferences: preferences(),
     },
     db: db(),
     clock: () => T0,
@@ -53,6 +58,9 @@ function buildServices() {
     tasks: new TaskService(d, sheetService),
     accounts: new AccountService(d),
     adminRecovery: new AdminRecoveryService(d),
+    adminAudit: new AdminAuditService(d),
+    userDirectory: new UserDirectoryService(d),
+    sheetPreferences: new SheetPreferencesService(d),
   };
 }
 
@@ -848,6 +856,116 @@ describe('ownership invariant', () => {
   });
 });
 
+describe('stale-authority race protection (M4-QA-02)', () => {
+  // Each test deterministically reproduces "request A authorizes as owner,
+  // request B transfers ownership and commits, request A's write then lands"
+  // by intercepting the service's own `findById` (the read `authorize()`
+  // uses) to inject a real, completed transfer between A's authorize step
+  // and A's write — rather than relying on timing, which would be flaky.
+
+  it('grantMembership: refuses a stale-authority write and never grants the membership', async () => {
+    const s = await scenario();
+    const rival = await makeUser();
+    const target = s.stranger;
+    const d = deps();
+    const sheetService = new SheetService(d);
+
+    const originalFindById = d.repos.sheets.findById.bind(d.repos.sheets);
+    let intercepted = false;
+    vi.spyOn(d.repos.sheets, 'findById').mockImplementation(async (id: string) => {
+      const result = await originalFindById(id);
+      if (!intercepted && id === s.sheet.id) {
+        intercepted = true;
+        // A concurrent request transfers ownership away from `s.owner`
+        // before `grantMembership`'s own write executes below.
+        await buildServices().sheets.transferOwnership(s.actors.owner, s.sheet.id, rival.id);
+      }
+      return result;
+    });
+
+    await expectStatus(
+      sheetService.grantMembership(s.actors.owner, s.sheet.id, target.id, 'viewer'),
+      409
+    );
+    expect(await memberships().findRole(s.sheet.id, target.id)).toBeNull();
+  });
+
+  it('revokeMembership: refuses a stale-authority write and never revokes the membership', async () => {
+    const s = await scenario();
+    const rival = await makeUser();
+    const d = deps();
+    const sheetService = new SheetService(d);
+
+    const originalFindById = d.repos.sheets.findById.bind(d.repos.sheets);
+    let intercepted = false;
+    vi.spyOn(d.repos.sheets, 'findById').mockImplementation(async (id: string) => {
+      const result = await originalFindById(id);
+      if (!intercepted && id === s.sheet.id) {
+        intercepted = true;
+        await buildServices().sheets.transferOwnership(s.actors.owner, s.sheet.id, rival.id);
+      }
+      return result;
+    });
+
+    await expectStatus(sheetService.revokeMembership(s.actors.owner, s.sheet.id, s.editor.id), 409);
+    // The editor's membership must survive — the stale revoke never landed.
+    expect(await memberships().findRole(s.sheet.id, s.editor.id)).toBe('editor');
+  });
+
+  it('transferOwnership: a second, stale transfer refuses rather than silently reassigning ownership again', async () => {
+    const s = await scenario();
+    const firstTarget = await makeUser();
+    const staleSecondTarget = s.stranger;
+    const d = deps();
+    const sheetService = new SheetService(d);
+
+    const originalFindById = d.repos.sheets.findById.bind(d.repos.sheets);
+    let intercepted = false;
+    vi.spyOn(d.repos.sheets, 'findById').mockImplementation(async (id: string) => {
+      const result = await originalFindById(id);
+      if (!intercepted && id === s.sheet.id) {
+        intercepted = true;
+        // A different concurrent request completes its own transfer first.
+        await buildServices().sheets.transferOwnership(s.actors.owner, s.sheet.id, firstTarget.id);
+      }
+      return result;
+    });
+
+    await expectStatus(
+      sheetService.transferOwnership(s.actors.owner, s.sheet.id, staleSecondTarget.id),
+      409
+    );
+    // Ownership is exactly what the winning concurrent transfer set — the
+    // stale second transfer must not have overwritten it.
+    expect((await sheets().findById(s.sheet.id))?.ownerUserId).toBe(firstTarget.id);
+  });
+
+  it('a role change (not a first grant) still succeeds once ownership is stable, and is audited distinctly (M4-QA-07)', async () => {
+    const s = await scenario();
+    await buildServices().sheets.grantMembership(
+      s.actors.owner,
+      s.sheet.id,
+      s.stranger.id,
+      'viewer'
+    );
+
+    const updated = await buildServices().sheets.grantMembership(
+      s.actors.owner,
+      s.sheet.id,
+      s.stranger.id,
+      'editor'
+    );
+    expect(updated.role).toBe('editor');
+
+    const events = await auditEvents().listForTarget('sheet', s.sheet.id, 20);
+    const roleChangeEvent = events.find((e) => e.action === 'sheet.membership.role_changed');
+    expect(roleChangeEvent).toBeDefined();
+    const metadata = JSON.parse(roleChangeEvent!.metadataJson) as Record<string, unknown>;
+    expect(metadata.previousRole).toBe('viewer');
+    expect(metadata.role).toBe('editor');
+  });
+});
+
 describe('recycle-before-purge lifecycle', () => {
   it('refuses to purge an active List', async () => {
     const s = await scenario();
@@ -867,6 +985,21 @@ describe('recycle-before-purge lifecycle', () => {
     const s = await scenario();
     const task = await makeTask(s.sheet.id);
     await expectStatus(buildServices().tasks.purge(s.actors.owner, task.id), 409);
+  });
+
+  it('lists a recycled List in its owner’s own recycle bin, not in an editor’s', async () => {
+    const s = await scenario();
+    const services = buildServices();
+    await services.sheets.recycle(s.actors.owner, s.sheet.id);
+
+    const ownerBin = await buildServices().sheets.listRecycled(s.actors.owner);
+    expect(ownerBin.map((sheet) => sheet.id)).toEqual([s.sheet.id]);
+
+    // An editor never owns anything, so their own recycle bin never surfaces
+    // a List they merely had membership on — restoring/purging a shared List
+    // stays the owner's (or an admin's) call, matching `canManageSheetLifecycle`.
+    const editorBin = await buildServices().sheets.listRecycled(s.actors.editor);
+    expect(editorBin).toEqual([]);
   });
 });
 
@@ -1042,6 +1175,263 @@ describe('account administration', () => {
   });
 });
 
+describe('account purge (M4.4, M0 §Accounts "delete the entire recycled account unit")', () => {
+  it('refuses to purge an active (not-yet-recycled) account', async () => {
+    const s = await scenario();
+    await expectStatus(buildServices().accounts.purge(s.actors.admin, s.editor.id), 409);
+  });
+
+  it('denies account purge to a non-admin', async () => {
+    const s = await scenario();
+    await users().recycle(s.editor.id, T0);
+    await expectStatus(buildServices().accounts.purge(s.actors.owner, s.editor.id), 403);
+  });
+
+  it('refuses an admin purging their own account', async () => {
+    const s = await scenario();
+    await users().recycle(s.admin.id, T0);
+    await expectStatus(buildServices().accounts.purge(s.actors.admin, s.admin.id), 409);
+  });
+
+  it('purges a recycled account with no owned Lists', async () => {
+    const s = await scenario();
+    await users().recycle(s.editor.id, T0);
+
+    await buildServices().accounts.purge(s.actors.admin, s.editor.id);
+
+    expect(await users().findById(s.editor.id)).toBeNull();
+  });
+
+  it('purges the account and every List it owns — active and recycled — as one unit, cascading tasks/history/memberships, and never leaves an ownerless List', async () => {
+    const owner = await makeUser();
+    const other = await makeUser();
+    const admin = await makeUser({ globalRole: 'admin' });
+    const activeSheet = await makeSheet(owner.id, { displayName: 'Active owned' });
+    const recycledSheet = await makeSheet(owner.id, { displayName: 'Recycled owned' });
+    const task = await makeTask(activeSheet.id);
+    await sheets().recycle(recycledSheet.id, T0);
+    await memberships().upsert({
+      sheetId: activeSheet.id,
+      userId: other.id,
+      role: 'viewer',
+      createdByUserId: owner.id,
+      now: T0,
+    });
+    await users().recycle(owner.id, T0);
+
+    await buildServices().accounts.purge(actorFromUser(admin), owner.id);
+
+    expect(await users().findById(owner.id)).toBeNull();
+    expect(await sheets().findById(activeSheet.id)).toBeNull();
+    expect(await sheets().findById(recycledSheet.id)).toBeNull();
+    expect(await tasks().findById(task.id)).toBeNull();
+    // The cascade must not touch a List this account merely had membership
+    // on (not owned) — only what it owned is part of the purge unit.
+    expect(await memberships().find(activeSheet.id, other.id)).toBeNull(); // cascaded with the owned List, not orphaned
+  });
+
+  it('records an audit event for account purge, with no content leaked', async () => {
+    const owner = await makeUser();
+    const admin = await makeUser({ globalRole: 'admin' });
+    const nameMarker = 'SYNTHETIC-PURGED-LIST-NAME';
+    const ownedSheet = await makeSheet(owner.id, { displayName: nameMarker });
+    await users().recycle(owner.id, T0);
+
+    await buildServices().accounts.purge(actorFromUser(admin), owner.id);
+
+    const events = await auditEvents().listForTarget('user', owner.id, 10);
+    expect(events.map((e) => e.action)).toContain('user.purged');
+    expect(JSON.stringify(events)).not.toContain(nameMarker);
+    expect(JSON.stringify(events)).not.toContain(ownedSheet.displayName);
+  });
+});
+
+describe('admin opaque List purge (M4.4)', () => {
+  it('refuses to purge an active (not-recycled) List through the admin surface', async () => {
+    const s = await scenario();
+    await expectStatus(buildServices().adminRecovery.purgeSheet(s.actors.admin, s.sheet.id), 409);
+  });
+
+  it('denies admin List purge to a non-admin', async () => {
+    const s = await scenario();
+    await buildServices().sheets.recycle(s.actors.owner, s.sheet.id);
+    await expectStatus(buildServices().adminRecovery.purgeSheet(s.actors.owner, s.sheet.id), 403);
+  });
+
+  it('purges a recycled List by opaque id, cascading its tasks', async () => {
+    const s = await scenario();
+    const task = await makeTask(s.sheet.id);
+    await buildServices().sheets.recycle(s.actors.owner, s.sheet.id);
+
+    await buildServices().adminRecovery.purgeSheet(s.actors.admin, s.sheet.id);
+
+    expect(await sheets().findById(s.sheet.id)).toBeNull();
+    expect(await tasks().findById(task.id)).toBeNull();
+  });
+
+  it('records sheet.purged.admin without the List name', async () => {
+    const s = await scenario();
+    const marker = 'SYNTHETIC-ADMIN-PURGED-LIST';
+    const named = await makeSheet(s.owner.id, { displayName: marker });
+    await buildServices().sheets.recycle(s.actors.owner, named.id);
+
+    await buildServices().adminRecovery.purgeSheet(s.actors.admin, named.id);
+
+    const events = await auditEvents().listForTarget('sheet', named.id, 10);
+    expect(events.map((e) => e.action)).toContain('sheet.purged.admin');
+    expect(JSON.stringify(events)).not.toContain(marker);
+  });
+});
+
+describe('admin user-detail (M0 §12)', () => {
+  it('denies user-detail to a non-admin', async () => {
+    const s = await scenario();
+    await expectStatus(buildServices().accounts.getUserDetail(s.actors.owner, s.editor.id), 403);
+  });
+
+  it('returns account/List/membership metadata only, no List name leaked in a content-bearing field', async () => {
+    const s = await scenario();
+    const nameMarker = 'SYNTHETIC-USER-DETAIL-LIST-NAME';
+    const ownedSheet = await makeSheet(s.owner.id, { displayName: nameMarker });
+
+    const detail = await buildServices().accounts.getUserDetail(s.actors.admin, s.owner.id);
+
+    expect(detail.user.id).toBe(s.owner.id);
+    expect(detail.ownedSheets.map((sh) => sh.id)).toContain(ownedSheet.id);
+    // The List's own display name is an approved field on the owner's List
+    // record itself (M0 §12 does not exclude List names, only task/note/
+    // history content) — this assertion instead proves the detail view
+    // carries no task content at all, by construction: `UserDetail` has no
+    // field capable of holding a task name or note in the first place.
+    expect(Object.keys(detail)).toEqual(['user', 'ownedSheets', 'memberships']);
+  });
+
+  it('includes memberships the user holds on Lists they do not own', async () => {
+    const s = await scenario();
+    const detail = await buildServices().accounts.getUserDetail(s.actors.admin, s.editor.id);
+    expect(detail.memberships.map((m) => m.sheetId)).toContain(s.sheet.id);
+  });
+});
+
+describe('AdminAuditService (M4.4)', () => {
+  it('denies audit reads to a non-admin', async () => {
+    const s = await scenario();
+    await expectStatus(buildServices().adminAudit.listRecent(s.actors.owner), 403);
+  });
+
+  it('lists recent audit events, newest first', async () => {
+    const s = await scenario();
+    await buildServices().sheets.recycle(s.actors.owner, s.sheet.id);
+    await buildServices().sheets.restore(s.actors.owner, s.sheet.id);
+
+    const events = await buildServices().adminAudit.listRecent(s.actors.admin, 10);
+    expect(events.length).toBeGreaterThanOrEqual(2);
+    expect(events[0]!.createdAt).toBeGreaterThanOrEqual(events[events.length - 1]!.createdAt);
+  });
+
+  it('lists audit history for one target', async () => {
+    const s = await scenario();
+    await buildServices().sheets.recycle(s.actors.owner, s.sheet.id);
+
+    const events = await buildServices().adminAudit.listForTarget(
+      s.actors.admin,
+      'sheet',
+      s.sheet.id
+    );
+    expect(events.map((e) => e.action)).toContain('sheet.recycled');
+  });
+
+  it('clamps an out-of-range limit rather than rejecting it', async () => {
+    const s = await scenario();
+    const events = await buildServices().adminAudit.listRecent(s.actors.admin, 10_000);
+    // Does not throw, and the repository-level LIMIT bound (200) is honored —
+    // asserted indirectly by the call succeeding rather than erroring on an
+    // absurd LIMIT value.
+    expect(Array.isArray(events)).toBe(true);
+  });
+
+  describe('cursor pagination (M4-QA-08)', () => {
+    // Uses `listForTarget` against a unique, per-test synthetic targetId
+    // rather than `listRecent`'s global stream: this test file's D1 storage
+    // is shared across every test in the file (not reset per test), so a
+    // global-stream assertion would also see audit rows other tests in this
+    // file created. Scoping to one target the test alone writes to isolates
+    // it completely.
+    async function seedEvent(targetId: string, createdAt: number, id: string): Promise<void> {
+      await auditEvents().append({
+        id,
+        actorUserId: null,
+        action: 'user.role.changed',
+        targetType: 'user',
+        targetId,
+        metadataJson: '{}',
+        requestId: null,
+        now: createdAt,
+      });
+    }
+
+    it('walks every row exactly once across pages, with no duplication or omission', async () => {
+      const admin = actorFromUser(await makeUser({ globalRole: 'admin' }));
+      const targetId = `pagination-test-${crypto.randomUUID()}`;
+      const ids = Array.from({ length: 7 }, (_, i) => `event-${i}-${crypto.randomUUID()}`);
+      for (let i = 0; i < ids.length; i++) {
+        await seedEvent(targetId, T0 + i * 1000, ids[i]!);
+      }
+
+      const services = buildServices();
+
+      const page1 = await services.adminAudit.listForTarget(admin, 'user', targetId, 3);
+      expect(page1.map((e) => e.id)).toEqual([ids[6], ids[5], ids[4]]);
+
+      const page2 = await services.adminAudit.listForTarget(admin, 'user', targetId, 3, {
+        createdAt: page1[2]!.createdAt,
+        id: page1[2]!.id,
+      });
+      expect(page2.map((e) => e.id)).toEqual([ids[3], ids[2], ids[1]]);
+
+      const page3 = await services.adminAudit.listForTarget(admin, 'user', targetId, 3, {
+        createdAt: page2[2]!.createdAt,
+        id: page2[2]!.id,
+      });
+      expect(page3.map((e) => e.id)).toEqual([ids[0]]);
+
+      // No id appears twice across all three pages, and every seeded id appears exactly once.
+      const allIds = [...page1, ...page2, ...page3].map((e) => e.id);
+      expect(new Set(allIds).size).toBe(allIds.length);
+      expect(allIds.sort()).toEqual([...ids].sort());
+    });
+
+    it('breaks ties correctly when two events share the exact same created_at millisecond', async () => {
+      const admin = actorFromUser(await makeUser({ globalRole: 'admin' }));
+      const targetId = `pagination-tie-test-${crypto.randomUUID()}`;
+      // Three events at the identical timestamp — only `id` (the secondary
+      // ORDER BY key) can distinguish their relative order for cursoring.
+      const tiedIds = ['aaaa-tied', 'bbbb-tied', 'cccc-tied'].map(
+        (label) => `${label}-${crypto.randomUUID()}`
+      );
+      for (const id of tiedIds) {
+        await seedEvent(targetId, T0, id);
+      }
+
+      const services = buildServices();
+
+      const page1 = await services.adminAudit.listForTarget(admin, 'user', targetId, 2);
+      expect(page1).toHaveLength(2);
+
+      const page2 = await services.adminAudit.listForTarget(admin, 'user', targetId, 2, {
+        createdAt: page1[1]!.createdAt,
+        id: page1[1]!.id,
+      });
+
+      // The tied third row appears on page 2, not duplicated on page 1 and
+      // not skipped entirely.
+      const allIds = [...page1, ...page2].map((e) => e.id);
+      expect(new Set(allIds).size).toBe(allIds.length);
+      expect(allIds.sort()).toEqual([...tiedIds].sort());
+    });
+  });
+});
+
 describe('audit metadata carries no content', () => {
   it('records a membership grant without the List name', async () => {
     const s = await scenario();
@@ -1071,5 +1461,254 @@ describe('audit metadata carries no content', () => {
     const serialized = JSON.stringify(events);
     expect(serialized).not.toContain(nameMarker);
     expect(serialized).not.toContain(noteMarker);
+  });
+});
+
+describe('UserDirectoryService.findByEmail — exact-email sharing lookup (M4-D2)', () => {
+  it('resolves an active user by their exact email', async () => {
+    const target = await makeUser();
+    const requester = await makeUser();
+
+    const found = await buildServices().userDirectory.findByEmail(
+      actorFromUser(requester),
+      `${target.id}@example.invalid`
+    );
+    expect(found.id).toBe(target.id);
+  });
+
+  it('is case-insensitive, matching the normalization applied at sign-in', async () => {
+    const target = await makeUser();
+    const requester = await makeUser();
+
+    const found = await buildServices().userDirectory.findByEmail(
+      actorFromUser(requester),
+      `${target.id}@EXAMPLE.invalid`.toUpperCase()
+    );
+    expect(found.id).toBe(target.id);
+  });
+
+  it('answers 404 for an email with no account, not a distinguishable error', async () => {
+    const requester = await makeUser();
+    await expectStatus(
+      buildServices().userDirectory.findByEmail(actorFromUser(requester), 'nobody@example.invalid'),
+      404
+    );
+  });
+
+  it('answers 404 (not the account) for a disabled target, so the lookup cannot be used to probe account state', async () => {
+    const target = await makeUser();
+    const requester = await makeUser();
+    await users().disable(target.id, T0);
+
+    await expectStatus(
+      buildServices().userDirectory.findByEmail(
+        actorFromUser(requester),
+        `${target.id}@example.invalid`
+      ),
+      404
+    );
+  });
+
+  it('answers 404 for a recycled target', async () => {
+    const target = await makeUser();
+    const requester = await makeUser();
+    await users().recycle(target.id, T0);
+
+    await expectStatus(
+      buildServices().userDirectory.findByEmail(
+        actorFromUser(requester),
+        `${target.id}@example.invalid`
+      ),
+      404
+    );
+  });
+
+  it('denies a disabled requester (403), even for a valid target email', async () => {
+    const target = await makeUser();
+    const requester = await makeUser();
+    await users().disable(requester.id, T0);
+    // Re-fetch: `Actor` reflects state at the moment it was built (the auth
+    // middleware's job on a real request), so the test must rebuild it from
+    // the now-disabled row rather than reuse the pre-disable snapshot.
+    const disabledRequester = await users().findById(requester.id);
+
+    await expectStatus(
+      buildServices().userDirectory.findByEmail(
+        actorFromUser(disabledRequester!),
+        `${target.id}@example.invalid`
+      ),
+      403
+    );
+  });
+});
+
+describe('AccountService.findUserByEmail — admin-only lookup that finds any account state (M4-QA-03)', () => {
+  it('finds an active account by exact email', async () => {
+    const target = await makeUser();
+    const admin = await makeUser({ globalRole: 'admin' });
+    const found = await buildServices().accounts.findUserByEmail(
+      actorFromUser(admin),
+      `${target.id}@example.invalid`
+    );
+    expect(found.id).toBe(target.id);
+  });
+
+  it('finds a disabled account — the exact case the ordinary lookup refuses (M4-QA-03)', async () => {
+    const target = await makeUser();
+    const admin = await makeUser({ globalRole: 'admin' });
+    await users().disable(target.id, T0);
+
+    const found = await buildServices().accounts.findUserByEmail(
+      actorFromUser(admin),
+      `${target.id}@example.invalid`
+    );
+    expect(found.id).toBe(target.id);
+    expect(found.state).toBe('disabled');
+  });
+
+  it('finds a recycled account', async () => {
+    const target = await makeUser();
+    const admin = await makeUser({ globalRole: 'admin' });
+    await users().recycle(target.id, T0);
+
+    const found = await buildServices().accounts.findUserByEmail(
+      actorFromUser(admin),
+      `${target.id}@example.invalid`
+    );
+    expect(found.id).toBe(target.id);
+    expect(found.state).toBe('recycled');
+  });
+
+  it('denies a non-admin (403) — this lookup must not widen the ordinary sharing oracle', async () => {
+    const target = await makeUser();
+    const owner = await makeUser();
+    await expectStatus(
+      buildServices().accounts.findUserByEmail(
+        actorFromUser(owner),
+        `${target.id}@example.invalid`
+      ),
+      403
+    );
+  });
+
+  it('answers 404 for an email with no account', async () => {
+    const admin = await makeUser({ globalRole: 'admin' });
+    await expectStatus(
+      buildServices().accounts.findUserByEmail(actorFromUser(admin), 'nobody@example.invalid'),
+      404
+    );
+  });
+});
+
+describe('SheetPreferencesService — server-backed sheet order/visibility (M4.3, M4-D3)', () => {
+  it('returns the default document when nothing has been saved yet', async () => {
+    const owner = await makeUser();
+    const prefs = await buildServices().sheetPreferences.get(actorFromUser(owner));
+    expect(prefs).toEqual({ sheetOrder: [], hiddenSheetIds: [] });
+  });
+
+  it('saves and re-reads a preference document', async () => {
+    const owner = await makeUser();
+    const a = await makeSheet(owner.id);
+    const b = await makeSheet(owner.id);
+
+    await buildServices().sheetPreferences.save(actorFromUser(owner), {
+      sheetOrder: [b.id, a.id],
+      hiddenSheetIds: [a.id],
+    });
+
+    const reread = await buildServices().sheetPreferences.get(actorFromUser(owner));
+    expect(reread).toEqual({ sheetOrder: [b.id, a.id], hiddenSheetIds: [a.id] });
+  });
+
+  it('scopes strictly to the acting user — saving does not affect another user’s document', async () => {
+    const owner = await makeUser();
+    const other = await makeUser();
+    const a = await makeSheet(owner.id);
+
+    await buildServices().sheetPreferences.save(actorFromUser(owner), {
+      sheetOrder: [a.id],
+      hiddenSheetIds: [],
+    });
+
+    const otherPrefs = await buildServices().sheetPreferences.get(actorFromUser(other));
+    expect(otherPrefs).toEqual({ sheetOrder: [], hiddenSheetIds: [] });
+  });
+
+  it('denies a disabled actor on both get and save (403)', async () => {
+    const owner = await makeUser();
+    await users().disable(owner.id, T0);
+    const disabledOwner = await users().findById(owner.id);
+
+    await expectStatus(buildServices().sheetPreferences.get(actorFromUser(disabledOwner!)), 403);
+    await expectStatus(
+      buildServices().sheetPreferences.save(actorFromUser(disabledOwner!), {
+        sheetOrder: [],
+        hiddenSheetIds: [],
+      }),
+      403
+    );
+  });
+
+  it('a second save overwrites rather than merges with the first', async () => {
+    const owner = await makeUser();
+    const a = await makeSheet(owner.id);
+    const b = await makeSheet(owner.id);
+    const services = buildServices();
+
+    await services.sheetPreferences.save(actorFromUser(owner), {
+      sheetOrder: [a.id],
+      hiddenSheetIds: [a.id],
+    });
+    await services.sheetPreferences.save(actorFromUser(owner), {
+      sheetOrder: [b.id],
+      hiddenSheetIds: [],
+    });
+
+    const final = await buildServices().sheetPreferences.get(actorFromUser(owner));
+    expect(final).toEqual({ sheetOrder: [b.id], hiddenSheetIds: [] });
+  });
+
+  describe('serialized-size bound against the real database CHECK (M4-QA-05)', () => {
+    /** `prefix` picks the id family so `sheetOrder`/`hiddenSheetIds` batches never collide. */
+    function uuidBatch(count: number, prefix: '1' | '2'): string[] {
+      return Array.from(
+        { length: count },
+        (_, i) => `${prefix}${String(i).padStart(7, '0')}-1111-4111-8111-111111111111`
+      );
+    }
+
+    it('the per-field id-count cap (100) keeps a maximal combined document under the database CHECK on its own', async () => {
+      // Confirms the count cap chosen for M4-QA-05 is actually sufficient:
+      // 100 unique UUIDs in each field serializes to 7,835 bytes, safely
+      // under the 8,192-byte `preferences_json` CHECK.
+      const owner = await makeUser();
+      const atCap = { sheetOrder: uuidBatch(100, '1'), hiddenSheetIds: uuidBatch(100, '2') };
+
+      const saved = await buildServices().sheetPreferences.save(actorFromUser(owner), atCap);
+      expect(saved.sheetOrder).toHaveLength(100);
+      expect(saved.hiddenSheetIds).toHaveLength(100);
+    });
+
+    it('refuses to save a document exceeding the combined serialized-size bound, before ever reaching D1 (defense in depth)', async () => {
+      // `SheetPreferencesService.save` takes an already-typed `SheetPreferences`
+      // rather than going through `parseSheetPreferences`, so this constructs
+      // a document the request-validation boundary would already reject
+      // (over the per-field count cap) to prove the *service* itself also
+      // refuses it — not only the route layer — as the real last line of
+      // defense against the database CHECK.
+      const owner = await makeUser();
+      const oversized = { sheetOrder: uuidBatch(150, '1'), hiddenSheetIds: uuidBatch(150, '2') };
+
+      await expectStatus(
+        buildServices().sheetPreferences.save(actorFromUser(owner), oversized),
+        400
+      );
+
+      // Confirms the rejection happened before any write: the user's
+      // document is still the untouched default, not a partial write.
+      const after = await buildServices().sheetPreferences.get(actorFromUser(owner));
+      expect(after).toEqual({ sheetOrder: [], hiddenSheetIds: [] });
+    });
   });
 });

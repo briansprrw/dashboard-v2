@@ -7,28 +7,59 @@
 import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 
+import { AdminPanelDialog } from '../components/admin/AdminPanelDialog';
 import { ClockHeader } from '../components/dashboard/ClockHeader';
 import { Legend } from '../components/dashboard/Legend';
 import { DisplaySettings } from '../components/settings/DisplaySettings';
+import { CreateSheetDialog } from '../components/sheets/CreateSheetDialog';
+import { ManageMembersDialog } from '../components/sheets/ManageMembersDialog';
+import { RecycleSheetDialog } from '../components/sheets/RecycleSheetDialog';
+import { RenameSheetDialog } from '../components/sheets/RenameSheetDialog';
+import { SheetPreferencesDialog } from '../components/sheets/SheetPreferencesDialog';
+import { SheetRecycleBinDialog } from '../components/sheets/SheetRecycleBinDialog';
 import { SheetSection } from '../components/sheets/SheetSection';
+import { TransferOwnershipDialog } from '../components/sheets/TransferOwnershipDialog';
 import { MoveTaskDialog } from '../components/tasks/MoveTaskDialog';
 import { TaskForm } from '../components/tasks/TaskForm';
 import { filterTasksByClosedVisibility } from '../components/tasks/task-visibility';
+import { api } from '../lib/api';
 import type { UseSheetsDataResult, SheetWithTasks } from '../hooks/use-sheets-data';
 import { useUndoableAction } from '../hooks/use-undoable-action';
 import type { UsePreferencesResult } from '../state/use-preferences';
+import type { UseSheetPreferencesResult } from '../state/use-sheet-preferences';
 import type { AccessibleSheetDto, TaskDto } from '../../shared/contracts/dto';
 import type { MoveTaskRequest, TaskFieldsRequest } from '../../shared/contracts/requests';
 
 export interface DashboardViewProps {
+  /** Already ordered/filtered by the caller's sheet preferences (M4.3). */
   sheets: SheetWithTasks[];
+  /** Every accessible sheet, unfiltered — the source list the preferences dialog reorders/hides from. */
+  allSheets: AccessibleSheetDto[];
+  sheetPreferences: UseSheetPreferencesResult;
   staleMessage?: string;
   prefs: UsePreferencesResult;
   /** While true, no create/edit/move/recycle/quick-complete control renders, and any already-open dialog or pending Undo is closed (M0 §8: "disables edits"; M3-QA-05). */
   offline?: boolean;
+  /** Shows the Administration entry point (M4.4). Server-side authorization is what actually gates every action inside it — this only controls whether the affordance renders. */
+  isAdmin?: boolean;
   actions: Pick<
     UseSheetsDataResult,
-    'createTask' | 'updateTask' | 'moveTask' | 'recycleTask' | 'restoreTask'
+    | 'createSheet'
+    | 'createTask'
+    | 'updateTask'
+    | 'moveTask'
+    | 'recycleTask'
+    | 'restoreTask'
+    | 'renameSheet'
+    | 'recycleSheet'
+    | 'restoreSheet'
+    | 'purgeSheet'
+    | 'listRecycledSheets'
+    | 'lookupUserByEmail'
+    | 'listMembers'
+    | 'grantMembership'
+    | 'revokeMembership'
+    | 'transferOwnership'
   >;
 }
 
@@ -36,7 +67,15 @@ type DialogState =
   | { kind: 'none' }
   | { kind: 'create'; sheetId: string }
   | { kind: 'edit'; task: TaskDto }
-  | { kind: 'move'; task: TaskDto };
+  | { kind: 'move'; task: TaskDto }
+  | { kind: 'rename-sheet'; sheet: AccessibleSheetDto }
+  | { kind: 'recycle-sheet'; sheet: AccessibleSheetDto }
+  | { kind: 'sheet-recycle-bin' }
+  | { kind: 'manage-members'; sheet: AccessibleSheetDto }
+  | { kind: 'transfer-ownership'; sheet: AccessibleSheetDto }
+  | { kind: 'sheet-preferences' }
+  | { kind: 'admin' }
+  | { kind: 'create-sheet' };
 
 function describeActionFailure(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong. Please try again.';
@@ -44,9 +83,12 @@ function describeActionFailure(error: unknown): string {
 
 export function DashboardView({
   sheets,
+  allSheets: allAccessibleSheets,
+  sheetPreferences,
   staleMessage,
   prefs,
   offline = false,
+  isAdmin = false,
   actions,
 }: DashboardViewProps) {
   const [dialog, setDialog] = useState<DialogState>({ kind: 'none' });
@@ -80,7 +122,11 @@ export function DashboardView({
     setSettingsOpen(false);
   }
 
-  const allSheets: AccessibleSheetDto[] = sheets.map((s) => s.sheet);
+  // Move destinations and the sheet-preferences dialog both need every
+  // accessible sheet, not the visibility-filtered `sheets` prop — a hidden
+  // sheet must remain a valid move destination and must still appear in the
+  // preferences dialog so it can be un-hidden.
+  const allSheets = allAccessibleSheets;
 
   // M3-QA-05: going offline must close an already-open mutation dialog and
   // dismiss (not run) a pending Undo, not just hide the row-level controls
@@ -160,6 +206,23 @@ export function DashboardView({
     });
   }
 
+  async function handleCreateSheet(displayName: string) {
+    await actions.createSheet({ displayName });
+    setDialog({ kind: 'none' });
+  }
+
+  async function handleRenameSheet(displayName: string) {
+    if (dialog.kind !== 'rename-sheet') return;
+    await actions.renameSheet(dialog.sheet.id, { displayName });
+    setDialog({ kind: 'none' });
+  }
+
+  async function handleRecycleSheet() {
+    if (dialog.kind !== 'recycle-sheet') return;
+    await actions.recycleSheet(dialog.sheet.id);
+    setDialog({ kind: 'none' });
+  }
+
   async function handleRecycle(task: TaskDto) {
     try {
       await actions.recycleTask(task.id);
@@ -196,6 +259,46 @@ export function DashboardView({
             {preferences.showClock && <ClockHeader />}
           </div>
           <div className="app__header-actions">
+            {!offline && (
+              <button
+                type="button"
+                className="icon-btn"
+                data-testid="create-sheet-open"
+                onClick={() => setDialog({ kind: 'create-sheet' })}
+              >
+                New List
+              </button>
+            )}
+            {!offline && (
+              <button
+                type="button"
+                className="icon-btn"
+                data-testid="sheet-order-open"
+                onClick={() => setDialog({ kind: 'sheet-preferences' })}
+              >
+                Sheet order
+              </button>
+            )}
+            {!offline && (
+              <button
+                type="button"
+                className="icon-btn"
+                data-testid="sheet-recycle-bin-open"
+                onClick={() => setDialog({ kind: 'sheet-recycle-bin' })}
+              >
+                Recycle bin
+              </button>
+            )}
+            {!offline && isAdmin && (
+              <button
+                type="button"
+                className="icon-btn"
+                data-testid="admin-panel-open"
+                onClick={() => setDialog({ kind: 'admin' })}
+              >
+                Admin
+              </button>
+            )}
             {isGlance && (
               <button
                 type="button"
@@ -283,6 +386,18 @@ export function DashboardView({
                 onCreateTask={
                   offline ? undefined : (sheetId) => setDialog({ kind: 'create', sheetId })
                 }
+                onRenameSheet={
+                  offline ? undefined : () => setDialog({ kind: 'rename-sheet', sheet })
+                }
+                onRecycleSheet={
+                  offline ? undefined : () => setDialog({ kind: 'recycle-sheet', sheet })
+                }
+                onManageMembers={
+                  offline ? undefined : () => setDialog({ kind: 'manage-members', sheet })
+                }
+                onTransferOwnership={
+                  offline ? undefined : () => setDialog({ kind: 'transfer-ownership', sheet })
+                }
                 // Glance mode removes nonessential controls and keeps only the
                 // unobtrusive create affordance above — per-row quick-complete/
                 // edit/move/recycle are Standard mode's management surface
@@ -332,6 +447,76 @@ export function DashboardView({
           candidateSheets={allSheets.filter((s) => s.id !== dialog.task.sheetId)}
           onMove={handleMove}
           onClose={() => setDialog({ kind: 'none' })}
+        />
+      )}
+      {dialog.kind === 'rename-sheet' && (
+        <RenameSheetDialog
+          sheet={dialog.sheet}
+          onRename={handleRenameSheet}
+          onCancel={() => setDialog({ kind: 'none' })}
+        />
+      )}
+      {dialog.kind === 'recycle-sheet' && (
+        <RecycleSheetDialog
+          sheet={dialog.sheet}
+          onRecycle={handleRecycleSheet}
+          onCancel={() => setDialog({ kind: 'none' })}
+        />
+      )}
+      {dialog.kind === 'sheet-recycle-bin' && (
+        <SheetRecycleBinDialog
+          loadRecycled={actions.listRecycledSheets}
+          onRestore={actions.restoreSheet}
+          onPurge={actions.purgeSheet}
+          onClose={() => setDialog({ kind: 'none' })}
+        />
+      )}
+      {dialog.kind === 'manage-members' && (
+        <ManageMembersDialog
+          sheet={dialog.sheet}
+          loadMembers={() => actions.listMembers(dialog.sheet.id)}
+          lookupUser={actions.lookupUserByEmail}
+          onGrant={(userId, role) => actions.grantMembership(dialog.sheet.id, userId, role)}
+          onRevoke={(userId) => actions.revokeMembership(dialog.sheet.id, userId)}
+          onClose={() => setDialog({ kind: 'none' })}
+        />
+      )}
+      {dialog.kind === 'transfer-ownership' && (
+        <TransferOwnershipDialog
+          sheet={dialog.sheet}
+          lookupUser={actions.lookupUserByEmail}
+          onTransfer={async (newOwnerUserId) => {
+            await actions.transferOwnership(dialog.sheet.id, newOwnerUserId);
+            setDialog({ kind: 'none' });
+          }}
+          onCancel={() => setDialog({ kind: 'none' })}
+        />
+      )}
+      {dialog.kind === 'sheet-preferences' && (
+        <SheetPreferencesDialog
+          allSheets={allSheets}
+          preferences={sheetPreferences.preferences}
+          onSave={sheetPreferences.save}
+          onClose={() => setDialog({ kind: 'none' })}
+        />
+      )}
+      {dialog.kind === 'admin' && (
+        <AdminPanelDialog
+          lookupUser={async (email) => (await api.admin.lookupUser({ email })).user}
+          loadUserDetail={async (userId) => (await api.admin.getUserDetail(userId)).user}
+          onSetGlobalRole={(userId, role) => api.admin.setGlobalRole(userId, role)}
+          onDisable={(userId) => api.admin.disableUser(userId)}
+          onRecycle={(userId) => api.admin.recycleUser(userId)}
+          onRestore={(userId) => api.admin.restoreUser(userId)}
+          onRevokeSessions={(userId) => api.admin.revokeUserSessions(userId)}
+          onPurge={(userId) => api.admin.purgeUser(userId)}
+          onClose={() => setDialog({ kind: 'none' })}
+        />
+      )}
+      {dialog.kind === 'create-sheet' && (
+        <CreateSheetDialog
+          onCreate={handleCreateSheet}
+          onCancel={() => setDialog({ kind: 'none' })}
         />
       )}
     </>

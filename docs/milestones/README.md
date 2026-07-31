@@ -32,7 +32,7 @@ Codex owns Readiness, QA, and Re-review. Claude owns Implementation. Brian owns 
 | M1 | [Foundation and delivery](./M1-foundation-and-delivery.md)                           | Accepted    | Sonnet 5 `high` +think                                                   | Sonnet 5 `high` +think + Codex (`gpt-5.6-sol`, `high`)                          | Brian (Approved 2026-07-24) |
 | M2 | [Domain, authentication, and authorization](./M2-domain-auth-and-authorization.md)   | Accepted    | Opus 5`xhigh` (session model deviations recorded in milestone doc)       | Fable 5 `high` (M2.5, Brian-approved deviation) + Codex (`gpt-5.6-sol`, `high`) | Brian (Approved 2026-07-27) |
 | M3 | [Glance dashboard and core tasks](./M3-glance-dashboard-and-core-tasks.md)           | Accepted    | Sonnet 5`high`                                                           | Sonnet 5`high` +think + Codex (`gpt-5.6-sol`, `high`) visual/functional QA      | Brian (Approved 2026-07-30) |
-| M4 | [Management, sharing, and admin](./M4-management-sharing-and-admin.md)               | Not Started | Sonnet 5`high`                                                           | Opus 5`xhigh` permission review + Codex (`gpt-5.6-sol`, `high`)                 | Brian         |
+| M4 | [Management, sharing, and admin](./M4-management-sharing-and-admin.md)               | In Progress (M4.1–M4.4 implemented, uncommitted; QA pass 1 findings addressed, re-review pending; M4.5 pending) | Sonnet 5`high`                                                           | Opus 5`xhigh` permission review + Codex (`gpt-5.6-sol`, `high`)                 | Brian         |
 | M5 | [Public dashboards and display access](./M5-public-dashboards-and-display-access.md) | Not Started | Sonnet 5`high`                                                           | Opus 5`xhigh` privacy review + Codex (`gpt-5.6-sol`, `high`)                    | Brian         |
 | M6 | [Migration and reconciliation](./M6-migration-and-reconciliation.md)                 | Not Started | Sonnet 5`high` +think (Fable 5 `high` fallback if a rehearsal runs long) | Opus 5`xhigh` + Codex (`gpt-5.6-sol`, `high`)                                   | Brian         |
 | M7 | [Hardening and device QA](./M7-hardening-and-device-qa.md)                           | Not Started | Sonnet 5`high` +think                                                    | Sonnet 5`high` +think + Codex (`gpt-5.6-sol`, `high`); targeted human device QA | Brian         |
@@ -204,4 +204,4 @@ No safe default exists for authorization, privacy, destructive lifecycle, produc
 
 These inputs remain proposals until M0 records approval. V1 `Roadmap.md` and `README.md` are reference material, not Dash2 scope.
 
-**Last updated:** 2026-07-27
+**Last updated:** 2026-07-31

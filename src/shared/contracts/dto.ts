@@ -29,7 +29,9 @@ import type {
   SheetState,
   TaskPriority,
   TaskStatus,
+  UserState,
 } from '../domain/enums';
+import type { SheetPreferences } from '../domain/sheet-preferences';
 
 export interface TaskDto {
   id: string;
@@ -163,17 +165,49 @@ export function toAccessibleSheetDto(sheet: AccessibleSheetRecord): AccessibleSh
 export interface MembershipDto {
   sheetId: string;
   userId: string;
+  /**
+   * The member's display name (M4-QA-04): an owner managing an existing
+   * share needs to identify who they are removing or re-roling, not just an
+   * opaque id. Not a new disclosure — the owner already has a resolved
+   * relationship (List membership) with this person, the same boundary
+   * `listMembers`'s own owner-only authorization already enforces; this
+   * only completes information about someone already on the owner's List,
+   * it does not let the owner discover anyone new. Null in contexts (e.g.
+   * an admin's view of a target account's own memberships) where the
+   * caller has not resolved and does not need the member's name.
+   */
+  displayName: string | null;
   role: MembershipRole;
   createdAt: number;
 }
 
-export function toMembershipDto(membership: SheetMembershipRecord): MembershipDto {
+export function toMembershipDto(
+  membership: SheetMembershipRecord,
+  displayName: string | null = null
+): MembershipDto {
   return {
     sheetId: membership.sheetId,
     userId: membership.userId,
+    displayName,
     role: membership.role,
     createdAt: membership.createdAt,
   };
+}
+
+/**
+ * Resolves an exact-email share/transfer lookup (M4-D2) to the minimum a
+ * caller needs to confirm they found the right person and act on their id —
+ * not the user's own email back, not their role or account state. An
+ * allowlist projection, like every other DTO here, not a filtered
+ * `UserRecord`.
+ */
+export interface UserLookupDto {
+  userId: string;
+  displayName: string;
+}
+
+export function toUserLookupDto(user: UserRecord): UserLookupDto {
+  return { userId: user.id, displayName: user.displayName };
 }
 
 /**
@@ -202,6 +236,20 @@ export function toSessionUserDto(user: UserRecord): SessionUserDto {
     locale: user.locale,
     timezone: user.timezone,
   };
+}
+
+/**
+ * The user's own server-backed sheet order/visibility (M4.3, M4-D3). Not a
+ * general preferences DTO — everything else display-related stays
+ * device-local (M0-D9) and is never sent to or read from the server.
+ */
+export interface SheetPreferencesDto {
+  sheetOrder: string[];
+  hiddenSheetIds: string[];
+}
+
+export function toSheetPreferencesDto(prefs: SheetPreferences): SheetPreferencesDto {
+  return { sheetOrder: prefs.sheetOrder, hiddenSheetIds: prefs.hiddenSheetIds };
 }
 
 export interface TaskEventDto {
@@ -301,6 +349,42 @@ export function toSheetRecoveryDto(sheet: SheetRecoveryRecord): SheetRecoveryDto
     ownerUserId: sheet.ownerUserId,
     state: sheet.state,
     recycledAt: sheet.recycledAt,
+  };
+}
+
+/**
+ * Admin user-detail view (M0 §12: "account state, global role, last
+ * activity, owned Lists, and memberships, but no private tasks, private
+ * notes, or task-history field values"). `ownedSheets` and `memberships`
+ * carry only List identity/name/state and role — no task content, matching
+ * the same allowlist boundary every other administrative DTO in this file
+ * enforces.
+ */
+export interface AdminUserDetailDto {
+  id: string;
+  displayName: string;
+  globalRole: GlobalRole;
+  state: UserState;
+  lastSeenAt: number | null;
+  createdAt: number;
+  ownedSheets: SheetDto[];
+  memberships: MembershipDto[];
+}
+
+export function toAdminUserDetailDto(input: {
+  user: UserRecord;
+  ownedSheets: SheetRecord[];
+  memberships: SheetMembershipRecord[];
+}): AdminUserDetailDto {
+  return {
+    id: input.user.id,
+    displayName: input.user.displayName,
+    globalRole: input.user.globalRole,
+    state: input.user.state,
+    lastSeenAt: input.user.lastSeenAt,
+    createdAt: input.user.createdAt,
+    ownedSheets: input.ownedSheets.map(toSheetDto),
+    memberships: input.memberships.map((membership) => toMembershipDto(membership)),
   };
 }
 

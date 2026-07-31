@@ -255,6 +255,51 @@ describe('OAuth-start rate limiting', () => {
   });
 });
 
+describe('user-lookup rate limiting (M4-QA-09)', () => {
+  // `POST /api/v1/users/lookup` (M4-D2's exact-email sharing lookup) is an
+  // authenticated account-enumeration oracle if left unbounded: any eligible
+  // user can call it repeatedly to learn which exact emails have active
+  // accounts. `src/server/routes/users.ts` keys the same `checkRateLimit`
+  // primitive by the *acting user's own id* (`user-lookup:${actor.userId}`)
+  // rather than by IP, since the route is only ever reached with a session.
+  // These tests exercise that exact key shape and policy directly — the
+  // same level `OAuth-start rate limiting` above tests its own route at —
+  // rather than driving a full authenticated HTTP request, which no test in
+  // this suite currently constructs for any route.
+  const USER_LOOKUP_RATE_LIMIT = { limit: 20, windowSeconds: 60 };
+
+  it('allows lookups within the per-actor limit', async () => {
+    const actorId = crypto.randomUUID();
+    for (let i = 0; i < 20; i++) {
+      const result = await checkRateLimit(kv(), `user-lookup:${actorId}`, USER_LOOKUP_RATE_LIMIT);
+      expect(result.allowed).toBe(true);
+    }
+  });
+
+  it('denies the 21st lookup within the window', async () => {
+    const actorId = crypto.randomUUID();
+    for (let i = 0; i < 20; i++) {
+      await checkRateLimit(kv(), `user-lookup:${actorId}`, USER_LOOKUP_RATE_LIMIT);
+    }
+    const blocked = await checkRateLimit(kv(), `user-lookup:${actorId}`, USER_LOOKUP_RATE_LIMIT);
+    expect(blocked.allowed).toBe(false);
+  });
+
+  it('scopes the limit per actor, not globally — one user hitting the limit does not affect another', async () => {
+    const actorA = crypto.randomUUID();
+    const actorB = crypto.randomUUID();
+    for (let i = 0; i < 20; i++) {
+      await checkRateLimit(kv(), `user-lookup:${actorA}`, USER_LOOKUP_RATE_LIMIT);
+    }
+    expect(
+      (await checkRateLimit(kv(), `user-lookup:${actorA}`, USER_LOOKUP_RATE_LIMIT)).allowed
+    ).toBe(false);
+    expect(
+      (await checkRateLimit(kv(), `user-lookup:${actorB}`, USER_LOOKUP_RATE_LIMIT)).allowed
+    ).toBe(true);
+  });
+});
+
 describe('sessions', () => {
   let store: SessionStore;
 

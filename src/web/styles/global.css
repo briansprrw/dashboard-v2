@@ -846,6 +846,22 @@ a {
   flex: 0 0 auto;
 }
 
+/* Owner-only rename/recycle controls (M4.1) — same quiet outline treatment
+   as the create affordance, since both sit in the same heading row. */
+.sheet-section__lifecycle-actions {
+  display: flex;
+  gap: 0.3125em;
+  flex: 0 0 auto;
+}
+
+.sheet-section__lifecycle-actions button {
+  font-size: 0.9em;
+  padding: 0.4em 0.7em;
+  background: transparent;
+  border-color: var(--control-border);
+  color: var(--text-dim);
+}
+
 .sheet-section[data-collapsed='true'] .sheet-section__tasks,
 .sheet-section[data-collapsed='true'] .sheet-section__empty {
   display: none;
@@ -1510,6 +1526,32 @@ a {
   gap: 0.5em;
   flex-wrap: wrap;
   margin-top: 0.375em;
+}
+
+.recycle-bin__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375em;
+}
+
+.recycle-bin__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75em;
+  padding: 0.5em 0.625em;
+  background: var(--panel-raised);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-sm);
+}
+
+.recycle-bin__item-actions {
+  display: flex;
+  gap: 0.375em;
+  flex: 0 0 auto;
 }
 
 /* ==========================================================================

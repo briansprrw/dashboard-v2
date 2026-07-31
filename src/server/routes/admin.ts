@@ -9,15 +9,21 @@
 // require reversing M0-D16, which is Brian's decision and not an implementation
 // change.
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 
 import {
+  toAdminUserDetailDto,
+  toAuditEventDto,
   toSheetRecoveryDto,
   toTaskEventMetadataDto,
   toTaskRecoveryDto,
+  toUserLookupDto,
 } from '../../shared/contracts/dto';
+import { parseLookupUserByEmail } from '../../shared/contracts/requests';
 import { requireId } from '../../shared/contracts/validation';
 import { GLOBAL_ROLES } from '../../shared/domain/enums';
+import type { AuditEventRecord } from '../../shared/domain/records';
+import { AUDIT_TARGET_TYPES } from '../services/audit';
 import { buildServices } from '../app-context';
 import type { AppEnv } from '../env';
 import { readJsonBody } from '../http/request-body';
@@ -74,6 +80,35 @@ adminRoutes.post('/sheets/:sheetId/restore', async (c) => {
   return c.json({ sheet: toSheetRecoveryDto(sheet) });
 });
 
+adminRoutes.delete('/sheets/:sheetId', async (c) => {
+  const sheetId = requireId(c.req.param('sheetId'), 'sheetId');
+  const services = buildServices(c.env, c.get('requestId'));
+  await services.adminRecovery.purgeSheet(c.get('actor'), sheetId);
+  return c.json({ purged: true });
+});
+
+/**
+ * Admin-only email lookup that can find a disabled or recycled account
+ * (M4-QA-03) — distinct from `POST /users/lookup`, which is intentionally
+ * active-only and available to any eligible user. POST, not GET/query
+ * string, for the same reason as the ordinary lookup: an exact email must
+ * never land in a URL.
+ */
+adminRoutes.post('/users/lookup', async (c) => {
+  const body = parseLookupUserByEmail(await readJsonBody(c));
+  const services = buildServices(c.env, c.get('requestId'));
+  const user = await services.accounts.findUserByEmail(c.get('actor'), body.email);
+  return c.json({ user: toUserLookupDto(user) });
+});
+
+/** M0 §12 admin user-detail: account/List/membership metadata only, no task content. */
+adminRoutes.get('/users/:userId', async (c) => {
+  const userId = requireId(c.req.param('userId'), 'userId');
+  const services = buildServices(c.env, c.get('requestId'));
+  const detail = await services.accounts.getUserDetail(c.get('actor'), userId);
+  return c.json({ user: toAdminUserDetailDto(detail) });
+});
+
 const SET_ROLE_FIELDS = ['globalRole'] as const;
 
 adminRoutes.post('/users/:userId/role', async (c) => {
@@ -117,4 +152,81 @@ adminRoutes.post('/users/:userId/revoke-sessions', async (c) => {
   const services = buildServices(c.env, c.get('requestId'));
   await services.accounts.revokeSessions(c.get('actor'), userId);
   return c.json({ revoked: true });
+});
+
+/** Permanently deletes a recycled account and every List it owns, as one unit. */
+adminRoutes.delete('/users/:userId', async (c) => {
+  const userId = requireId(c.req.param('userId'), 'userId');
+  const services = buildServices(c.env, c.get('requestId'));
+  await services.accounts.purge(c.get('actor'), userId);
+  return c.json({ purged: true });
+});
+
+function parseLimitQuery(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/**
+ * Reads the `beforeCreatedAt`/`beforeId` pagination cursor pair (M4-QA-08).
+ * Both or neither — a lone half of the pair is not a valid cursor and is
+ * treated as absent rather than guessed at.
+ */
+function parseBeforeCursor(c: Context<AppEnv>) {
+  const rawCreatedAt = c.req.query('beforeCreatedAt');
+  const rawId = c.req.query('beforeId');
+  if (rawCreatedAt === undefined || rawId === undefined) return undefined;
+  const createdAt = Number(rawCreatedAt);
+  if (!Number.isFinite(createdAt) || rawId.length === 0) return undefined;
+  return { createdAt, id: rawId };
+}
+
+/**
+ * `nextCursor` is the `(createdAt, id)` of the last returned row, or `null`
+ * once fewer than `limit` rows came back — the page was not full, so there
+ * is nothing more to fetch. A client pages by resending the same request
+ * with `beforeCreatedAt`/`beforeId` set to the previous response's
+ * `nextCursor` (M4-QA-08).
+ */
+function buildAuditPage(events: AuditEventRecord[], limit: number) {
+  const nextCursor =
+    events.length >= limit && events.length > 0
+      ? { createdAt: events[events.length - 1]!.createdAt, id: events[events.length - 1]!.id }
+      : null;
+  return { events: events.map(toAuditEventDto), nextCursor };
+}
+
+const DEFAULT_AUDIT_LIMIT = 50;
+
+/** The separate administrative/security audit stream (M0 §5), newest first. */
+adminRoutes.get('/audit', async (c) => {
+  const services = buildServices(c.env, c.get('requestId'));
+  const limit = parseLimitQuery(c.req.query('limit')) ?? DEFAULT_AUDIT_LIMIT;
+  const events = await services.adminAudit.listRecent(c.get('actor'), limit, parseBeforeCursor(c));
+  return c.json(buildAuditPage(events, limit));
+});
+
+/** Audit history for one object (a List, task, user, or membership), by opaque id. */
+adminRoutes.get('/audit/:targetType/:targetId', async (c) => {
+  const errors = new FieldErrors();
+  const targetType = validateEnum(
+    errors,
+    'targetType',
+    c.req.param('targetType'),
+    AUDIT_TARGET_TYPES
+  );
+  errors.throwIfAny();
+  const targetId = requireId(c.req.param('targetId'), 'targetId');
+
+  const services = buildServices(c.env, c.get('requestId'));
+  const limit = parseLimitQuery(c.req.query('limit')) ?? DEFAULT_AUDIT_LIMIT;
+  const events = await services.adminAudit.listForTarget(
+    c.get('actor'),
+    targetType!,
+    targetId,
+    limit,
+    parseBeforeCursor(c)
+  );
+  return c.json(buildAuditPage(events, limit));
 });

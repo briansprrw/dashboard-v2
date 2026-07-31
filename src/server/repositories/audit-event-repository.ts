@@ -88,37 +88,73 @@ export class AuditEventRepository {
   }
 
   /**
-   * Most recent audit events, newest first. Bounded by an explicit limit because
-   * this collection grows without end; the admin surface that pages through it
-   * lands in M4.
+   * Most recent audit events, newest first. Bounded by an explicit limit
+   * because this collection grows without end.
+   *
+   * `before`, when given, is a `(createdAt, id)` cursor — the last row of the
+   * previous page — rather than an offset (M4-QA-08). Two events can share
+   * the same `created_at` millisecond, so an offset-based page (`LIMIT/OFFSET`)
+   * can silently skip or repeat rows across pages when new events are
+   * appended between reads; comparing the full `(created_at, id)` tuple
+   * against the same `ORDER BY` the query already uses does not have that
+   * failure mode, because the tuple is unique and monotonically decreasing
+   * in the same order the page is walked.
    */
-  async listRecent(limit: number): Promise<AuditEventRecord[]> {
-    const { results } = await this.db
-      .prepare(
-        `SELECT ${columnList(AUDIT_COLUMNS)} FROM audit_events
-         ORDER BY created_at DESC, id DESC
-         LIMIT ?1`
-      )
-      .bind(limit)
-      .all<AuditEventRow>();
+  async listRecent(limit: number, before?: AuditCursor): Promise<AuditEventRecord[]> {
+    const { results } = await (
+      before
+        ? this.db
+            .prepare(
+              `SELECT ${columnList(AUDIT_COLUMNS)} FROM audit_events
+             WHERE (created_at < ?1) OR (created_at = ?1 AND id < ?2)
+             ORDER BY created_at DESC, id DESC
+             LIMIT ?3`
+            )
+            .bind(before.createdAt, before.id, limit)
+        : this.db
+            .prepare(
+              `SELECT ${columnList(AUDIT_COLUMNS)} FROM audit_events
+             ORDER BY created_at DESC, id DESC
+             LIMIT ?1`
+            )
+            .bind(limit)
+    ).all<AuditEventRow>();
     return results.map(toAuditEventRecord);
   }
 
-  /** Audit history for one object, including one that has since been purged. */
+  /** Audit history for one object, including one that has since been purged. Same cursor contract as `listRecent`. */
   async listForTarget(
     targetType: string,
     targetId: string,
-    limit: number
+    limit: number,
+    before?: AuditCursor
   ): Promise<AuditEventRecord[]> {
-    const { results } = await this.db
-      .prepare(
-        `SELECT ${columnList(AUDIT_COLUMNS)} FROM audit_events
-         WHERE target_type = ?1 AND target_id = ?2
-         ORDER BY created_at DESC, id DESC
-         LIMIT ?3`
-      )
-      .bind(targetType, targetId, limit)
-      .all<AuditEventRow>();
+    const { results } = await (
+      before
+        ? this.db
+            .prepare(
+              `SELECT ${columnList(AUDIT_COLUMNS)} FROM audit_events
+             WHERE target_type = ?1 AND target_id = ?2
+               AND ((created_at < ?3) OR (created_at = ?3 AND id < ?4))
+             ORDER BY created_at DESC, id DESC
+             LIMIT ?5`
+            )
+            .bind(targetType, targetId, before.createdAt, before.id, limit)
+        : this.db
+            .prepare(
+              `SELECT ${columnList(AUDIT_COLUMNS)} FROM audit_events
+             WHERE target_type = ?1 AND target_id = ?2
+             ORDER BY created_at DESC, id DESC
+             LIMIT ?3`
+            )
+            .bind(targetType, targetId, limit)
+    ).all<AuditEventRow>();
     return results.map(toAuditEventRecord);
   }
+}
+
+/** Opaque pagination cursor: the `(created_at, id)` of the last row on the previous page. */
+export interface AuditCursor {
+  createdAt: number;
+  id: string;
 }

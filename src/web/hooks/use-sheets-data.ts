@@ -14,8 +14,20 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { AccessibleSheetDto, TaskDto } from '../../shared/contracts/dto';
-import type { MoveTaskRequest, TaskFieldsRequest } from '../../shared/contracts/requests';
+import type {
+  AccessibleSheetDto,
+  MembershipDto,
+  SheetDto,
+  TaskDto,
+  UserLookupDto,
+} from '../../shared/contracts/dto';
+import type { MembershipRole } from '../../shared/domain/enums';
+import type {
+  CreateSheetRequest,
+  MoveTaskRequest,
+  RenameSheetRequest,
+  TaskFieldsRequest,
+} from '../../shared/contracts/requests';
 import { api } from '../lib/api';
 import { ApiError, ApiNetworkError } from '../lib/api-client';
 
@@ -41,12 +53,27 @@ export type SheetsDataState =
 export interface UseSheetsDataResult {
   data: SheetsDataState;
   refresh: () => Promise<void>;
+  createSheet: (fields: CreateSheetRequest) => Promise<SheetDto>;
   createTask: (sheetId: string, fields: TaskFieldsRequest) => Promise<TaskDto>;
   updateTask: (taskId: string, fields: TaskFieldsRequest) => Promise<TaskDto>;
   moveTask: (taskId: string, body: MoveTaskRequest) => Promise<void>;
   recycleTask: (taskId: string) => Promise<void>;
   restoreTask: (taskId: string) => Promise<TaskDto>;
   purgeTask: (taskId: string) => Promise<void>;
+  renameSheet: (sheetId: string, fields: RenameSheetRequest) => Promise<SheetDto>;
+  recycleSheet: (sheetId: string) => Promise<void>;
+  restoreSheet: (sheetId: string) => Promise<void>;
+  purgeSheet: (sheetId: string) => Promise<void>;
+  listRecycledSheets: () => Promise<SheetDto[]>;
+  lookupUserByEmail: (email: string) => Promise<UserLookupDto>;
+  listMembers: (sheetId: string) => Promise<MembershipDto[]>;
+  grantMembership: (
+    sheetId: string,
+    userId: string,
+    role: MembershipRole
+  ) => Promise<MembershipDto>;
+  revokeMembership: (sheetId: string, userId: string) => Promise<void>;
+  transferOwnership: (sheetId: string, newOwnerUserId: string) => Promise<SheetDto>;
 }
 
 const BACKOFF_MULTIPLIER = 2;
@@ -233,6 +260,20 @@ export function useSheetsData(
     };
   }, [enabled, online, load]);
 
+  const createSheet = useCallback(
+    async (fields: CreateSheetRequest) => {
+      try {
+        const { sheet } = await api.sheets.create(fields);
+        await refresh();
+        return sheet;
+      } catch (error) {
+        reportIfUnauthenticated(error);
+        throw error;
+      }
+    },
+    [refresh]
+  );
+
   const createTask = useCallback(
     async (sheetId: string, fields: TaskFieldsRequest) => {
       try {
@@ -314,5 +355,159 @@ export function useSheetsData(
     [refresh]
   );
 
-  return { data, refresh, createTask, updateTask, moveTask, recycleTask, restoreTask, purgeTask };
+  const renameSheet = useCallback(
+    async (sheetId: string, fields: RenameSheetRequest) => {
+      try {
+        const { sheet } = await api.sheets.rename(sheetId, fields);
+        await refresh();
+        return sheet;
+      } catch (error) {
+        reportIfUnauthenticated(error);
+        throw error;
+      }
+    },
+    [refresh]
+  );
+
+  const recycleSheet = useCallback(
+    async (sheetId: string) => {
+      try {
+        await api.sheets.recycle(sheetId);
+        await refresh();
+      } catch (error) {
+        reportIfUnauthenticated(error);
+        throw error;
+      }
+    },
+    [refresh]
+  );
+
+  const restoreSheet = useCallback(
+    async (sheetId: string) => {
+      try {
+        await api.sheets.restore(sheetId);
+        await refresh();
+      } catch (error) {
+        reportIfUnauthenticated(error);
+        throw error;
+      }
+    },
+    [refresh]
+  );
+
+  const purgeSheet = useCallback(
+    async (sheetId: string) => {
+      try {
+        await api.sheets.purge(sheetId);
+        await refresh();
+      } catch (error) {
+        reportIfUnauthenticated(error);
+        throw error;
+      }
+    },
+    [refresh]
+  );
+
+  // Not refreshed against the main sheets list on success: the recycle bin
+  // is a distinct, on-demand view (opened from a dialog), not part of the
+  // ready-state polling loop, so callers fetch it when the dialog opens
+  // rather than this hook holding a second piece of always-live state.
+  const listRecycledSheets = useCallback(async () => {
+    try {
+      const { sheets: recycled } = await api.sheets.listRecycled();
+      return recycled;
+    } catch (error) {
+      reportIfUnauthenticated(error);
+      throw error;
+    }
+  }, []);
+
+  // Not refreshed against the main sheets list: a lookup reads nothing about
+  // the actor's own accessible sheets, so there is nothing to refresh.
+  const lookupUserByEmail = useCallback(async (email: string) => {
+    try {
+      const { user } = await api.users.lookup({ email });
+      return user;
+    } catch (error) {
+      reportIfUnauthenticated(error);
+      throw error;
+    }
+  }, []);
+
+  // Same "on-demand, not part of the polled state" reasoning as
+  // `listRecycledSheets` — membership is viewed from its own dialog, not the
+  // ready-state dashboard.
+  const listMembers = useCallback(async (sheetId: string) => {
+    try {
+      const { members } = await api.sheets.listMembers(sheetId);
+      return members;
+    } catch (error) {
+      reportIfUnauthenticated(error);
+      throw error;
+    }
+  }, []);
+
+  // Granting/revoking a share changes the *target* user's access, never the
+  // acting owner's own accessible-sheets list, so — unlike transferOwnership
+  // below — there is nothing here for this hook's own `refresh()` to pick up.
+  const grantMembership = useCallback(
+    async (sheetId: string, userId: string, role: MembershipRole) => {
+      try {
+        const { membership } = await api.sheets.grantMembership(sheetId, { userId, role });
+        return membership;
+      } catch (error) {
+        reportIfUnauthenticated(error);
+        throw error;
+      }
+    },
+    []
+  );
+
+  const revokeMembership = useCallback(async (sheetId: string, userId: string) => {
+    try {
+      await api.sheets.revokeMembership(sheetId, userId);
+    } catch (error) {
+      reportIfUnauthenticated(error);
+      throw error;
+    }
+  }, []);
+
+  const transferOwnership = useCallback(
+    async (sheetId: string, newOwnerUserId: string) => {
+      try {
+        const { sheet } = await api.sheets.transferOwnership(sheetId, { newOwnerUserId });
+        // Unlike grant/revoke, this changes the acting owner's own
+        // accessLevel on the List (they are no longer its owner), so the
+        // main sheets list must be refreshed to reflect that.
+        await refresh();
+        return sheet;
+      } catch (error) {
+        reportIfUnauthenticated(error);
+        throw error;
+      }
+    },
+    [refresh]
+  );
+
+  return {
+    data,
+    refresh,
+    createSheet,
+    createTask,
+    updateTask,
+    moveTask,
+    recycleTask,
+    restoreTask,
+    purgeTask,
+    renameSheet,
+    recycleSheet,
+    restoreSheet,
+    purgeSheet,
+    listRecycledSheets,
+    lookupUserByEmail,
+    listMembers,
+    grantMembership,
+    revokeMembership,
+    transferOwnership,
+  };
 }

@@ -8,6 +8,7 @@
 
 import type { AuditEventRepository } from '../repositories/audit-event-repository';
 import type { MembershipRepository } from '../repositories/membership-repository';
+import type { PreferencesRepository } from '../repositories/preferences-repository';
 import type { SheetRepository } from '../repositories/sheet-repository';
 import type { TaskEventRepository } from '../repositories/task-event-repository';
 import type { TaskRepository } from '../repositories/task-repository';
@@ -25,6 +26,7 @@ export interface Repositories {
   tasks: TaskRepository;
   taskEvents: TaskEventRepository;
   auditEvents: AuditEventRepository;
+  preferences: PreferencesRepository;
 }
 
 export interface ServiceDeps {

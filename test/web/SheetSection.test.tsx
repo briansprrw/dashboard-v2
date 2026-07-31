@@ -40,4 +40,106 @@ describe('SheetSection', () => {
     fireEvent.click(screen.getByRole('button', { name: sheet.displayName }));
     expect(onToggleCollapsed).toHaveBeenCalledWith('sheet-42');
   });
+
+  describe('owner-only lifecycle controls (M4.1)', () => {
+    it('shows rename and recycle controls to the owner and calls back with the sheet id', () => {
+      const sheet = makeSheet({ id: 'sheet-1', accessLevel: 'owner' });
+      const onRenameSheet = vi.fn();
+      const onRecycleSheet = vi.fn();
+      render(
+        <SheetSection
+          sheet={sheet}
+          tasks={[]}
+          onRenameSheet={onRenameSheet}
+          onRecycleSheet={onRecycleSheet}
+        />
+      );
+
+      fireEvent.click(screen.getByTestId('rename-sheet-button'));
+      expect(onRenameSheet).toHaveBeenCalledWith('sheet-1');
+
+      fireEvent.click(screen.getByTestId('recycle-sheet-button'));
+      expect(onRecycleSheet).toHaveBeenCalledWith('sheet-1');
+    });
+
+    it('hides lifecycle controls from an editor', () => {
+      const sheet = makeSheet({ accessLevel: 'editor' });
+      render(
+        <SheetSection sheet={sheet} tasks={[]} onRenameSheet={vi.fn()} onRecycleSheet={vi.fn()} />
+      );
+
+      expect(screen.queryByTestId('rename-sheet-button')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('recycle-sheet-button')).not.toBeInTheDocument();
+    });
+
+    it('hides lifecycle controls from a viewer', () => {
+      const sheet = makeSheet({ accessLevel: 'viewer' });
+      render(
+        <SheetSection sheet={sheet} tasks={[]} onRenameSheet={vi.fn()} onRecycleSheet={vi.fn()} />
+      );
+
+      expect(screen.queryByTestId('rename-sheet-button')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('recycle-sheet-button')).not.toBeInTheDocument();
+    });
+
+    it('omits lifecycle controls entirely when the owner has no handlers to call (e.g. offline)', () => {
+      const sheet = makeSheet({ accessLevel: 'owner' });
+      render(<SheetSection sheet={sheet} tasks={[]} />);
+
+      expect(screen.queryByTestId('rename-sheet-button')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('recycle-sheet-button')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('owner-only membership/ownership controls (M4.2)', () => {
+    it('shows members and transfer controls to the owner and calls back with the sheet id', () => {
+      const sheet = makeSheet({ id: 'sheet-1', accessLevel: 'owner' });
+      const onManageMembers = vi.fn();
+      const onTransferOwnership = vi.fn();
+      render(
+        <SheetSection
+          sheet={sheet}
+          tasks={[]}
+          onManageMembers={onManageMembers}
+          onTransferOwnership={onTransferOwnership}
+        />
+      );
+
+      fireEvent.click(screen.getByTestId('manage-members-button'));
+      expect(onManageMembers).toHaveBeenCalledWith('sheet-1');
+
+      fireEvent.click(screen.getByTestId('transfer-ownership-button'));
+      expect(onTransferOwnership).toHaveBeenCalledWith('sheet-1');
+    });
+
+    it('hides members and transfer controls from an editor', () => {
+      const sheet = makeSheet({ accessLevel: 'editor' });
+      render(
+        <SheetSection
+          sheet={sheet}
+          tasks={[]}
+          onManageMembers={vi.fn()}
+          onTransferOwnership={vi.fn()}
+        />
+      );
+
+      expect(screen.queryByTestId('manage-members-button')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('transfer-ownership-button')).not.toBeInTheDocument();
+    });
+
+    it('hides members and transfer controls from a viewer', () => {
+      const sheet = makeSheet({ accessLevel: 'viewer' });
+      render(
+        <SheetSection
+          sheet={sheet}
+          tasks={[]}
+          onManageMembers={vi.fn()}
+          onTransferOwnership={vi.fn()}
+        />
+      );
+
+      expect(screen.queryByTestId('manage-members-button')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('transfer-ownership-button')).not.toBeInTheDocument();
+    });
+  });
 });

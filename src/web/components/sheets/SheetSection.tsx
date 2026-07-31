@@ -20,6 +20,12 @@ export interface SheetSectionProps {
   onToggleCollapsed?: (sheetId: string) => void;
   taskActions?: Omit<TaskRowActions, 'accessLevel'>;
   onCreateTask?: (sheetId: string) => void;
+  /** Owner-only List lifecycle controls (M4.1). Absent for a Viewer/Editor. */
+  onRenameSheet?: (sheetId: string) => void;
+  onRecycleSheet?: (sheetId: string) => void;
+  /** Owner-only membership/ownership controls (M4.2). Absent for a Viewer/Editor. */
+  onManageMembers?: (sheetId: string) => void;
+  onTransferOwnership?: (sheetId: string) => void;
 }
 
 export function SheetSection({
@@ -32,8 +38,13 @@ export function SheetSection({
   onToggleCollapsed,
   taskActions,
   onCreateTask,
+  onRenameSheet,
+  onRecycleSheet,
+  onManageMembers,
+  onTransferOwnership,
 }: SheetSectionProps) {
   const canWrite = sheet.accessLevel === 'owner' || sheet.accessLevel === 'editor';
+  const isOwner = sheet.accessLevel === 'owner';
   const sortedTasks = sortTasksForDisplay(tasks);
 
   return (
@@ -81,6 +92,54 @@ export function SheetSection({
           >
             + Task
           </button>
+        )}
+        {isOwner && (onRenameSheet ?? onRecycleSheet ?? onManageMembers ?? onTransferOwnership) && (
+          <span className="sheet-section__lifecycle-actions">
+            {onRenameSheet && (
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label={`Rename ${sheet.displayName}`}
+                data-testid="rename-sheet-button"
+                onClick={() => onRenameSheet(sheet.id)}
+              >
+                Rename
+              </button>
+            )}
+            {onManageMembers && (
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label={`Manage members of ${sheet.displayName}`}
+                data-testid="manage-members-button"
+                onClick={() => onManageMembers(sheet.id)}
+              >
+                Members
+              </button>
+            )}
+            {onTransferOwnership && (
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label={`Transfer ownership of ${sheet.displayName}`}
+                data-testid="transfer-ownership-button"
+                onClick={() => onTransferOwnership(sheet.id)}
+              >
+                Transfer
+              </button>
+            )}
+            {onRecycleSheet && (
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label={`Recycle ${sheet.displayName}`}
+                data-testid="recycle-sheet-button"
+                onClick={() => onRecycleSheet(sheet.id)}
+              >
+                Recycle
+              </button>
+            )}
+          </span>
         )}
       </h2>
       {!collapsed &&

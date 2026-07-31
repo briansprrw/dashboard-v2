@@ -15,17 +15,20 @@ import { idFactory } from './service-context';
 /** Sensitive actions the approved model requires to be audited (M0 §5). */
 export const AUDIT_ACTIONS = [
   'sheet.membership.granted',
+  'sheet.membership.role_changed',
   'sheet.membership.revoked',
   'sheet.ownership.transferred',
   'sheet.recycled',
   'sheet.restored',
   'sheet.purged',
+  'sheet.purged.admin',
   'task.restored.admin',
   'task.purged.admin',
   'user.role.changed',
   'user.disabled',
   'user.recycled',
   'user.restored',
+  'user.purged',
   'session.revoked.admin',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];

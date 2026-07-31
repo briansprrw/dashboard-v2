@@ -8,12 +8,16 @@
 // so the pre-preferences states (loading/signed-out/error/empty) render with
 // the default Dark token set rather than unstyled.
 
+import { useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 
+import { applySheetPreferences } from '../components/sheets/sheet-order';
+import { CreateSheetDialog } from '../components/sheets/CreateSheetDialog';
 import { useOnlineStatus } from '../hooks/use-online-status';
 import { useSheetsData } from '../hooks/use-sheets-data';
 import { usePreferences } from '../state/use-preferences';
 import { useSession } from '../state/use-session';
+import { useSheetPreferences } from '../state/use-sheet-preferences';
 import { DashboardView } from './DashboardView';
 
 export function App() {
@@ -21,14 +25,27 @@ export function App() {
   const sheetsEnabled = session.status === 'ready';
   const prefs = usePreferences();
   const online = useOnlineStatus();
+  const sheetPrefs = useSheetPreferences(sheetsEnabled);
+  const [showCreateFromEmpty, setShowCreateFromEmpty] = useState(false);
   const {
     data,
     refresh: refreshData,
+    createSheet,
     createTask,
     updateTask,
     moveTask,
     recycleTask,
     restoreTask,
+    renameSheet,
+    recycleSheet,
+    restoreSheet,
+    purgeSheet,
+    listRecycledSheets,
+    lookupUserByEmail,
+    listMembers,
+    grantMembership,
+    revokeMembership,
+    transferOwnership,
   } = useSheetsData(
     sheetsEnabled,
     prefs.preferences.refreshIntervalMs,
@@ -83,6 +100,19 @@ export function App() {
     return (
       <StateShell testId="app-state-empty">
         <p>You do not have any Lists yet.</p>
+        {!online ? null : showCreateFromEmpty ? (
+          <CreateSheetDialog
+            onCreate={async (displayName) => {
+              await createSheet({ displayName });
+              setShowCreateFromEmpty(false);
+            }}
+            onCancel={() => setShowCreateFromEmpty(false)}
+          />
+        ) : (
+          <button type="button" onClick={() => setShowCreateFromEmpty(true)}>
+            New List
+          </button>
+        )}
       </StateShell>
     );
   }
@@ -121,11 +151,31 @@ export function App() {
         button's open/closed state lives in `DashboardView`.
       */}
       <DashboardView
-        sheets={data.sheets}
+        sheets={applySheetPreferences(data.sheets, sheetPrefs.preferences)}
+        allSheets={data.sheets.map((s) => s.sheet)}
+        sheetPreferences={sheetPrefs}
         staleMessage={online && data.status === 'stale' ? data.message : undefined}
         prefs={prefs}
         offline={!online}
-        actions={{ createTask, updateTask, moveTask, recycleTask, restoreTask }}
+        isAdmin={session.user.globalRole === 'admin'}
+        actions={{
+          createSheet,
+          createTask,
+          updateTask,
+          moveTask,
+          recycleTask,
+          restoreTask,
+          renameSheet,
+          recycleSheet,
+          restoreSheet,
+          purgeSheet,
+          listRecycledSheets,
+          lookupUserByEmail,
+          listMembers,
+          grantMembership,
+          revokeMembership,
+          transferOwnership,
+        }}
       />
     </main>
   );

@@ -177,6 +177,19 @@ export class SheetRepository {
     return results.map(toAccessibleSheetRecord);
   }
 
+  /** Recycled Lists owned by a user — the source list for their List recycle bin. */
+  async listRecycledOwned(ownerUserId: string): Promise<SheetRecord[]> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT ${columnList(SHEET_COLUMNS)} FROM sheets
+         WHERE owner_user_id = ?1 AND state = 'recycled'
+         ORDER BY recycled_at DESC, id`
+      )
+      .bind(ownerUserId)
+      .all<SheetRow>();
+    return results.map(toSheetRecord);
+  }
+
   async rename(id: string, displayName: string, now: number): Promise<void> {
     await this.db
       .prepare('UPDATE sheets SET display_name = ?2, updated_at = ?3 WHERE id = ?1')
@@ -230,6 +243,33 @@ export class SheetRepository {
       this.db
         .prepare('UPDATE sheets SET owner_user_id = ?2, updated_at = ?3 WHERE id = ?1')
         .bind(id, newOwnerUserId, now),
+    ];
+  }
+
+  /**
+   * Same two statements as `prepareTransferOwnership`, but the owner-changing
+   * `UPDATE` only takes effect while `owner_user_id` still matches
+   * `expectedOwnerUserId` (M4-QA-02). The caller (`SheetService.
+   * transferOwnership`) checks the corresponding batch result's
+   * `meta.changes` and reports a conflict rather than committing a transfer
+   * decided under authority that had already been superseded by a
+   * concurrent transfer.
+   */
+  prepareTransferOwnershipIfOwner(
+    id: string,
+    newOwnerUserId: string,
+    expectedOwnerUserId: string,
+    now: number
+  ): D1PreparedStatement[] {
+    return [
+      this.db
+        .prepare('DELETE FROM sheet_memberships WHERE sheet_id = ?1 AND user_id = ?2')
+        .bind(id, newOwnerUserId),
+      this.db
+        .prepare(
+          'UPDATE sheets SET owner_user_id = ?2, updated_at = ?3 WHERE id = ?1 AND owner_user_id = ?4'
+        )
+        .bind(id, newOwnerUserId, now, expectedOwnerUserId),
     ];
   }
 

@@ -1,16 +1,25 @@
 import { describe, expect, it } from 'vitest';
 
-import { toSessionUserDto, toTaskDto } from '../../src/shared/contracts/dto';
+import { toMembershipDto, toSessionUserDto, toTaskDto } from '../../src/shared/contracts/dto';
 import {
   parseGrantMembership,
   parseMoveTask,
   parseProfileBootstrap,
+  parseSheetPreferences,
   parseTaskFields,
   parseTransferOwnership,
 } from '../../src/shared/contracts/requests';
 import { ValidationError } from '../../src/shared/contracts/validation';
 import { LIMITS } from '../../src/shared/domain/limits';
-import type { TaskRecord, UserRecord } from '../../src/shared/domain/records';
+import type {
+  SheetMembershipRecord,
+  TaskRecord,
+  UserRecord,
+} from '../../src/shared/domain/records';
+import {
+  fitsSheetPreferencesSizeLimit,
+  sanitizeSheetPreferences,
+} from '../../src/shared/domain/sheet-preferences';
 
 // Runtime validation (AC-D6) and DTO allowlisting (AC-D7).
 
@@ -374,5 +383,111 @@ describe('profile bootstrap is the only profile mutation', () => {
     expect(() => parseProfileBootstrap({ timezone: 'x'.repeat(LIMITS.timezone.max + 1) })).toThrow(
       ValidationError
     );
+  });
+});
+
+describe('sheet preferences (M4.3, M4-D3) — the one server-backed cross-device preference', () => {
+  const ID_A = '11111111-1111-4111-8111-111111111111';
+  const ID_B = '22222222-2222-4222-8222-222222222222';
+
+  it('accepts a valid sheetOrder/hiddenSheetIds body', () => {
+    expect(parseSheetPreferences({ sheetOrder: [ID_A, ID_B], hiddenSheetIds: [ID_B] })).toEqual({
+      sheetOrder: [ID_A, ID_B],
+      hiddenSheetIds: [ID_B],
+    });
+  });
+
+  it('defaults an omitted field to an empty list rather than requiring both', () => {
+    expect(parseSheetPreferences({ sheetOrder: [ID_A] })).toEqual({
+      sheetOrder: [ID_A],
+      hiddenSheetIds: [],
+    });
+  });
+
+  it('rejects an unexpected field', () => {
+    expect(() => parseSheetPreferences({ sheetOrder: [], extra: true })).toThrow(ValidationError);
+  });
+
+  it('rejects a non-array sheetOrder', () => {
+    expect(() => parseSheetPreferences({ sheetOrder: 'not-an-array' })).toThrow(ValidationError);
+  });
+
+  it('rejects an entry that is not a valid identifier', () => {
+    expect(() => parseSheetPreferences({ sheetOrder: ['not-a-uuid'] })).toThrow(ValidationError);
+  });
+
+  it('rejects more identifiers in one field than the per-field bound allows', () => {
+    const tooMany = Array.from(
+      { length: 101 },
+      (_, i) => `${String(i).padStart(8, '0')}-1111-4111-8111-111111111111`
+    );
+    expect(() => parseSheetPreferences({ sheetOrder: tooMany })).toThrow(ValidationError);
+  });
+
+  it('accepts a valid request at the per-field id-count cap in both fields (M4-QA-05)', () => {
+    // Proves the chosen cap (100/field) is genuinely sufficient: a maximal,
+    // well-formed request — 100 unique UUIDs in each field, the largest a
+    // real client can ever submit — serializes to 7,835 bytes, safely under
+    // the database's 8,192-byte `preferences_json` CHECK. There is no way
+    // for a *valid* request (every entry a real 36-character UUID) to reach
+    // `parseSheetPreferences`'s own combined-size guard, since `validateId`
+    // rejects anything not shaped like a UUID before size is ever measured.
+    const sheetOrder = Array.from(
+      { length: 100 },
+      (_, i) => `1${String(i).padStart(7, '0')}-1111-4111-8111-111111111111`
+    );
+    const hiddenSheetIds = Array.from(
+      { length: 100 },
+      (_, i) => `2${String(i).padStart(7, '0')}-2222-4222-8222-222222222222`
+    );
+    expect(() => parseSheetPreferences({ sheetOrder, hiddenSheetIds })).not.toThrow();
+  });
+
+  it('fitsSheetPreferencesSizeLimit detects an oversized raw document (M4-QA-05 defense in depth)', () => {
+    // `fitsSheetPreferencesSizeLimit` is the service-layer backstop used by
+    // `SheetPreferencesService.save` for input that did not necessarily pass
+    // through `parseSheetPreferences` — measured against the *raw* document,
+    // not a sanitized/truncated view, so it can actually detect an oversized
+    // document rather than one that was silently clamped down first.
+    const sheetOrder = Array.from({ length: 150 }, () => 'x'.repeat(60));
+    expect(fitsSheetPreferencesSizeLimit({ sheetOrder, hiddenSheetIds: [] })).toBe(false);
+  });
+
+  it('fitsSheetPreferencesSizeLimit accepts a document within the bound', () => {
+    expect(fitsSheetPreferencesSizeLimit({ sheetOrder: [ID_A], hiddenSheetIds: [ID_B] })).toBe(
+      true
+    );
+  });
+
+  it('sanitizeSheetPreferences drops a malformed stored document to defaults per-field independently', () => {
+    expect(sanitizeSheetPreferences({ sheetOrder: [ID_A], hiddenSheetIds: 'garbage' })).toEqual({
+      sheetOrder: [ID_A],
+      hiddenSheetIds: [],
+    });
+  });
+
+  it('sanitizeSheetPreferences de-duplicates ids', () => {
+    expect(sanitizeSheetPreferences({ sheetOrder: [ID_A, ID_A, ID_B] })).toEqual({
+      sheetOrder: [ID_A, ID_B],
+      hiddenSheetIds: [],
+    });
+  });
+});
+
+describe('membership DTO carries a resolvable display name (M4-QA-04)', () => {
+  const membership: SheetMembershipRecord = {
+    sheetId: '11111111-1111-4111-8111-111111111111',
+    userId: '22222222-2222-4222-8222-222222222222',
+    role: 'viewer',
+    createdAt: 0,
+    createdByUserId: null,
+  };
+
+  it('includes the resolved display name when one is passed', () => {
+    expect(toMembershipDto(membership, 'Jordan').displayName).toBe('Jordan');
+  });
+
+  it('defaults to null when no display name is resolved (e.g. an admin viewing a target account’s own memberships)', () => {
+    expect(toMembershipDto(membership).displayName).toBeNull();
   });
 });

@@ -89,6 +89,24 @@ describe('SheetRepository — rename, recycle, restore', () => {
     const owned = await sheets().listOwnedActive(owner.id);
     expect(owned.map((s) => s.id)).toEqual([active.id]);
   });
+
+  it('lists only the owner’s own recycled Lists, most recently recycled first', async () => {
+    const owner = await makeUser();
+    const other = await makeUser();
+    const active = await makeSheet(owner.id, { displayName: 'Still active' });
+    const firstRecycled = await makeSheet(owner.id, { displayName: 'First recycled' });
+    const secondRecycled = await makeSheet(owner.id, { displayName: 'Second recycled' });
+    const othersRecycled = await makeSheet(other.id, { displayName: 'Not mine' });
+
+    await sheets().recycle(firstRecycled.id, T0 + 1000);
+    await sheets().recycle(secondRecycled.id, T0 + 2000);
+    await sheets().recycle(othersRecycled.id, T0 + 3000);
+
+    const recycled = await sheets().listRecycledOwned(owner.id);
+    expect(recycled.map((s) => s.id)).toEqual([secondRecycled.id, firstRecycled.id]);
+    expect(recycled.map((s) => s.id)).not.toContain(active.id);
+    expect(recycled.map((s) => s.id)).not.toContain(othersRecycled.id);
+  });
 });
 
 describe('SheetRepository — accessible listing', () => {
@@ -195,6 +213,48 @@ describe('SheetRepository — ownership transfer', () => {
     ).rejects.toThrow();
 
     expect((await sheets().findById(sheet.id))?.ownerUserId).toBe(owner.id);
+  });
+
+  describe('owner-guarded transfer (M4-QA-02: stale-authority race protection)', () => {
+    it('the owner-changing statement affects zero rows when the expected owner is stale', async () => {
+      const owner = await makeUser();
+      const next = await makeUser();
+      const sheet = await makeSheet(owner.id);
+
+      // Simulates the race: ownership already moved to a third party before
+      // this statement (still believing `owner` is current) executes.
+      const thirdParty = await makeUser();
+      await sheets().transferOwnership(sheet.id, thirdParty.id, T0 + 1000);
+
+      const statements = sheets().prepareTransferOwnershipIfOwner(
+        sheet.id,
+        next.id,
+        owner.id, // stale — the actual current owner is now thirdParty
+        T0 + 2000
+      );
+      const results = await Promise.all(statements.map((s) => s.run()));
+      expect(results[1]?.meta.changes ?? 0).toBe(0);
+
+      // Ownership must be exactly what the intervening transfer set it to —
+      // the stale write must not have partially applied.
+      expect((await sheets().findById(sheet.id))?.ownerUserId).toBe(thirdParty.id);
+    });
+
+    it('the owner-changing statement succeeds when the expected owner still matches', async () => {
+      const owner = await makeUser();
+      const next = await makeUser();
+      const sheet = await makeSheet(owner.id);
+
+      const statements = sheets().prepareTransferOwnershipIfOwner(
+        sheet.id,
+        next.id,
+        owner.id,
+        T0 + 1000
+      );
+      const results = await Promise.all(statements.map((s) => s.run()));
+      expect(results[1]?.meta.changes ?? 0).toBe(1);
+      expect((await sheets().findById(sheet.id))?.ownerUserId).toBe(next.id);
+    });
   });
 });
 
