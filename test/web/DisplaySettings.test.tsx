@@ -57,6 +57,13 @@ describe('DisplaySettings', () => {
     expect(screen.getByLabelText('Soon up to')).toHaveValue(3);
   });
 
+  it('disables the Columns Min control since it is not yet enforced (M3-E5-01/M3-D2)', () => {
+    render(<Wrapper />);
+
+    expect(screen.getByLabelText('Min (not yet enforced)')).toBeDisabled();
+    expect(screen.getByLabelText('Max')).toBeEnabled();
+  });
+
   it('toggles the clock/date header preference (M3-QA-03)', () => {
     render(<Wrapper />);
 

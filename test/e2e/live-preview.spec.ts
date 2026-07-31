@@ -5,7 +5,7 @@
 //
 // Run it with:
 //   DASH2_LIVE_PREVIEW=1 DASH2_REUSE_SERVER=1 \
-//     npx playwright test live-preview.spec.ts --headed --project=chromium-desktop --timeout=0
+//     npx playwright test live-preview.spec.ts --headed --project=live-preview --timeout=0
 //
 // Both environment variables matter:
 //

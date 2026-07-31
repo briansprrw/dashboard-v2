@@ -384,6 +384,13 @@ textarea {
   min-width: 0;
 }
 
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 textarea {
   resize: vertical;
   min-height: 4.5em;
@@ -600,6 +607,33 @@ a {
   text-align: center;
 }
 
+/*
+ * A row with a long `__desc` plus two or more paired inputs (e.g. Columns'
+ * Min/Max) has no safe side-by-side arrangement once the label and control
+ * both need real width — at the narrow primary viewport this squeezed the
+ * label into a column so tight it wrapped one character at a time and
+ * collided with the control (M3-E5-02, found while regenerating M3-E5-01's
+ * evidence). Stack label above control below this width instead of fighting
+ * for horizontal space.
+ *
+ * 39.9375rem (639px), not 40rem (640px): M0.4's VP-2 reference is exactly
+ * 640px and its settings-panel layout must be unaffected by this row-
+ * stacking breakpoint (`visual-regression.spec.ts`'s vp2 baseline exercises
+ * exactly this width). `.sheet-columns` had the opposite off-by-one problem
+ * (M3.6-QA-01: a `min-width: 40rem` query matched inclusively at 640px) —
+ * here the boundary must exclude 640px instead, so the two breakpoints are
+ * deliberately not the same value.
+ */
+@media (max-width: 39.9375rem) {
+  .setting-row {
+    flex-wrap: wrap;
+  }
+  .setting-row__control {
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
+}
+
 /* Radio/checkbox groups laid out as a wrapping row of labelled controls. */
 .control-group {
   display: flex;
@@ -664,9 +698,13 @@ a {
    ========================================================================== */
 
 /*
- * Automatic 1-3 column flow within the device-local min/max bounds
- * (M0-D24). `--column-min`/`--column-max` come from preferences via inline
- * style on `.sheet-columns-container`.
+ * Automatic 1-3 column flow within the device-local max bound (M0-D24).
+ * `--column-max` comes from preferences via inline style on
+ * `.sheet-columns-container`. `--column-min` is also set from preferences
+ * but is not yet consumed by any rule below (M3-E5-01) — the Min setting is
+ * disabled in `DisplaySettings.tsx` rather than enforced, per Brian's
+ * recorded decision to defer real min-enforcement to a later milestone
+ * (Decision Log `M3-D2`).
  *
  * `container-type` is declared on `.sheet-columns-container`, one level above
  * the grid itself (`.sheet-columns`), rather than on the grid element: a
@@ -702,14 +740,14 @@ a {
 }
 /*
  * `auto-fill`/`minmax` above already gives continuous automatic flow. The two
- * breakpoints below are the local min/max *bounds* around that flow
- * (M0-D24): below the 2-column width the max is clamped to 1, and only once
- * the container is wide enough for `--column-max` columns does the grid
- * switch to a fixed column count so it can never exceed that bound. A min of
- * 2 or 3 with a narrow container is the "min yields" case M3 must expose
- * (AC-G5) — deliberately not force-applied here, since forcing a firm minimum
- * at an unsafe width is exactly the unsafe-reflow case the decision
- * prohibits.
+ * breakpoints below clamp the *max* bound (M0-D24): below the 2-column width
+ * the max is clamped to 1, and only once the container is wide enough for
+ * `--column-max` columns does the grid switch to a fixed column count so it
+ * can never exceed that bound. This is the "min yields" case M3 exposes
+ * (AC-G5) in the sense that a configured min above the natural auto-fill
+ * count is never force-applied at an unsafe width — but min itself is not a
+ * separate enforced floor today (M3-E5-01); the natural `auto-fill` count is
+ * all that determines the rendered column count once below max.
  *
  * 40.0625rem (641px), not 40rem (640px): M0.4's VP-2 reference is exactly
  * 640px wide and must stay one column (found by Codex's independent

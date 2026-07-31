@@ -38,9 +38,7 @@ test('a hasTouch:true context genuinely reports no-hover/coarse-pointer media', 
   await context.close();
 });
 
-test('the full create/edit/complete/move/recycle workflow works inside a real no-hover context', async ({
-  browser,
-}) => {
+test('create and move work inside a real no-hover context', async ({ browser }) => {
   const context = await browser.newContext({
     hasTouch: true,
     viewport: { width: 1280, height: 800 },

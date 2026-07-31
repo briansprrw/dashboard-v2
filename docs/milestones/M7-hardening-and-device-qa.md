@@ -21,6 +21,7 @@ Demonstrate that the approved Dash2 launch slice is secure, accessible, observab
 
 ## In scope
 
+- Real column-**min** enforcement for the responsive Sheet grid, deferred from M3 (`M3-D2`/`M3-E5-01`): M3 shipped max-only column bounds — `--column-min` is set from preferences but consumed by no CSS rule, and the Min control is disabled in the UI pending this work. Implement min as a real floor (forcing at least `columnBounds.min` columns once the container is safely wide enough for them, still yielding at unsafe widths per M0-D24), re-enable the Min control, and add non-vacuous regression coverage (a test that fails if min consumption is removed) alongside the existing device/browser matrix this milestone already exercises.
 - Full automated test suite and launch regression pack.
 - Browser/device/input/role/data matrix.
 - OAuth/session/admin/destructive-action threat review.

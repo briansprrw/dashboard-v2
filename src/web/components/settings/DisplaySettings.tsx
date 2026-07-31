@@ -195,16 +195,20 @@ export function DisplaySettings({ prefs }: DisplaySettingsProps) {
         <div className="setting-row">
           <span className="setting-row__label">
             Columns
-            <span className="setting-row__desc">Max is firm; min yields on narrow screens</span>
+            <span className="setting-row__desc">
+              Max is firm. Min is reserved, not yet enforced.
+            </span>
           </span>
           <div className="setting-row__control">
             <label>
-              Min
+              Min (not yet enforced)
               <input
                 type="number"
                 min={1}
                 max={3}
                 value={preferences.columnBounds.min}
+                disabled
+                aria-disabled="true"
                 onChange={(e) =>
                   setColumnBounds({
                     min: Number(e.target.value),
